@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+
+
+<style>
+    #template {
+    background-color: rgb(220, 220, 220);
+    width: 350px;
+    height: 500px;
+    }
+    #mergeroutput {
+    background-color: rgb(220, 220, 220);
+    width: 350px;
+    height: 500px;
+    }
+    </style>
+<script>
+const mergervars=[]
+function myFunction() {
+ 
+  document.getElementById("inputbox").innerHTML =""
+  let templateinput = document.getElementById("template").value
+  let regex=/\#\{(.*?)\}\#/g
+  var matches = templateinput.matchAll(regex)
+  
+  for (const match of matches){
+   document.getElementById("inputbox").innerHTML += "<br/><label>"+match[1]+"</label><br/><textarea id="+match[1]+"></textarea>"
+   mergervars.push(match)
+  };
+
+  inputbox.innerHTML = inputbox.innerHTML.replace(/\n/g, '<br>\n');
+
+
+}
+function mergerbuilder(){
+ let template=document.getElementById("template").value
+ for (const mergervar of mergervars){
+  valuetochange=mergervar[0]
+  replacevalue=document.getElementById(mergervar[1]).value
+  template=template.replace(valuetochange,replacevalue)
+ }
+ mergeroutput.innerHTML=template
+}
+</script>
+
+
+<body>
+
+<h2>Merger</h2>
+
+
+<p>Please enter your template</p>
+
+<textarea id="template"></textarea>
+<br/>
+<button type="button" onclick="myFunction()">Submit</button>
+
+<p>Now we can replace those values</p>
+<div id="formarea">
+  <p id="inputbox"></p>
+  <button type="button" onclick="mergerbuilder()">Submit</button>
+
+</div>
+This gives
+<h2>Output</h2>
+<textarea id="mergeroutput"></textarea>
+
+
+</body>
+</html> 
