@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+
+
+<style>
+    #template {
+    background-color: rgb(220, 220, 220);
+    width: 350px;
+    height: 500px;
+    }
+    #mergeroutput {
+    background-color: rgb(220, 220, 220);
+    width: 350px;
+    height: 500px;
+    }
+    </style>
+
+
+
+<body>
+
+<h2>Merger</h2>
+<p>Drop a CSV in here - ensure the Markdown template uses the same field names</p>
+
+<input type="file" id="myFile">
+
+<p>Please enter your template, use #{fieldname}# as placeholders</p>
+
+<textarea id="template"># Title
+#{title}#
+
+## Description
+
+#{description}#
+## Code
+
+```
+#{code}#
+```</textarea>
+<br/>
+
+</div>
+<h2>Output</h2>
+
+<button type="button" onclick="previousitem()">Previous</button>
+<button type="button" onclick="nextitem()">Next</button>
+<br/>
+<textarea id="mergeroutput"></textarea>
+
+
+</body>
+</html> 
+<script>
+  var fileinput = document.getElementById("myFile");
+  let currentitem=0;
+  let outputfiles=[];
+  fileinput.addEventListener("change",function() {
+    let template=document.getElementById("template").value
+    if (this.files && this.files[0]) {
+      var myFile = this.files[0];
+      var reader = new FileReader();
+      
+      reader.addEventListener('load', function (e) {
+        csvfile=e.target.result
+        let csvfields=csvfile.match('.*')
+        csvfields=csvfields[0].split(',')
+        let allLines = csvfile.split(/\r\n|\n/);
+        allLines=allLines.slice(0,-1)
+       
+        // Reading line by line
+        allLines.forEach((line) => {    
+            let outputfile=template
+            lineitems=line.split(',')
+            for (i=0;i<csvfields.length;i++){
+                replaceitem='#{'+csvfields[i]+'}#'
+                replacevalue=lineitems[i]
+                outputfile=outputfile.replaceAll(replaceitem,replacevalue)
+            }
+            
+            outputfiles.push(outputfile)
+            mergeroutput.innerHTML=outputfiles[0]
+            console.log(outputfiles.type)
+        });
+      });
+      
+      reader.readAsBinaryString(myFile);
+    }
+    
+  });
+  function nextitem(){
+    if (currentitem<outputfiles.length-1){
+        currentitem+=1
+        console.log(currentitem)
+        update();
+    }
+    else{
+    }
+  }
+  function previousitem(){
+    if (currentitem>0){
+        currentitem-=1
+        console.log(currentitem)
+        update();
+    }
+    else{
+    }
+  }
+  function update(){
+    mergeroutput.innerHTML=outputfiles[currentitem]
+  }
+  
+  
+  </script>
