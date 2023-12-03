@@ -57,7 +57,8 @@ function myFunction() {
   document.getElementById("inputbox").innerHTML =""
   let templateinput = document.getElementById("template").value
   let regex=/\#\{(.*?)\}\#/g
-  var matches = templateinput.matchAll(regex)
+  let matches=[]
+  let matches = templateinput.matchAll(regex)
 
   let uniquematches = []
   matches.forEach((element) => {
