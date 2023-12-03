@@ -57,22 +57,18 @@ function myFunction() {
   document.getElementById("inputbox").innerHTML =""
   let templateinput = document.getElementById("template").value
   let regex=/\#\{(.*?)\}\#/g
-  let uniquematches = []
-  matches=Array.from(matches[1])
-  matches.forEach((element) => {
-    if (!uniquematches.includes(element)) {
-        uniquematches.push(element);
-    }
-});
-   console.log(uniquematches)
-  for (const match of uniquematches){
-
-   document.getElementById("inputbox").innerHTML += "<br/><label>"+match+"</label><br/><textarea id="+match[1]+"></textarea>"
+  var matches = templateinput.matchAll(regex)
+  uniquematch=[]
+  for (const match of matches){
+    currentmatch=match[1]
+   uniquematch+=match[1]
+      if (!uniquematch.includes(currentmatch)){
+   document.getElementById("inputbox").innerHTML += "<br/><label>"+currentmatch+"</label><br/><textarea id="+match[1]+"></textarea>"
    mergervars.push(match)
+      }
   };
 
   inputbox.innerHTML = inputbox.innerHTML.replace(/\n/g, '<br>\n');
-
 
 }
 function mergerbuilder(){
