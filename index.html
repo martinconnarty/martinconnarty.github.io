@@ -59,8 +59,11 @@ function myFunction() {
   let regex=/\#\{(.*?)\}\#/g
   var matches = templateinput.matchAll(regex)
 
-  let uniquematches = matches.filter((element, index) => {
-    return matches.indexOf(element) === index;
+  let uniquematches = []
+  matches.forEach((element) => {
+    if (!uniqueChars.includes(element)) {
+        uniqueChars.push(element);
+    }
 });
   
   for (const match of uniquematches){
