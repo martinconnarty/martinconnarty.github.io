@@ -18,17 +18,16 @@
     width: 350px;
     height: 500px;
     }
+    body {
+        text-align: center;
+    }
     </style>
 
 
 <body>
-<center>
 <h2>Merger</h2>
-<p>Drop a CSV in here - ensure the Markdown template uses the same field names</p>
-
-<input type="file" id="myFile">
 <hr/>
-<p>Please enter your template, use #{fieldname}# as placeholders</p>
+<p>1 - Please enter your template, use #{fieldname}# as placeholders</p>
 
 <textarea id="template"># Title
 #{title}#
@@ -42,9 +41,14 @@
 #{code}#
 ```</textarea>
 <br/>
+<hr/>
+<p>2 - Drop a CSV in here - ensure the Markdown template uses the same field names</p>
+<br/>
+<input type="file" id="myFile">
+<hr/>
 
 </div>
-<h2>Output</h2>
+<h2>3 - Output</h2>
 <br/>
 <button type="button" onclick="previousitem()">Previous</button>
 <button type="button" onclick="nextitem()">Next</button>
@@ -53,7 +57,6 @@
 <textarea id="mergeroutput"></textarea>
 <br/>
 
-</center>
 
 </body>
 </html> 
@@ -76,13 +79,15 @@
         
         // Reading line by line
         allLines.forEach((line) => {
-            console.log(line)
             let outputfile=template
             lineitems=line.split(',')
             for (i=0;i<csvfields.length;i++){
                 replaceitem='#{'+csvfields[i]+'}#'
+
+                console.log(lineitems[i])
                 replacevalue=lineitems[i]
                 outputfile=outputfile.replaceAll(replaceitem,replacevalue)
+               
             }
             
             outputfiles.push(outputfile)
