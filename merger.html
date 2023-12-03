@@ -73,9 +73,10 @@
         csvfields=csvfields[0].split(',')
         let allLines = csvfile.split(/\r\n|\n/);
         allLines=allLines.slice(0,-1)
-       
+        
         // Reading line by line
-        allLines.forEach((line) => {    
+        allLines.forEach((line) => {
+            console.log(line)
             let outputfile=template
             lineitems=line.split(',')
             for (i=0;i<csvfields.length;i++){
