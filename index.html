@@ -58,8 +58,13 @@ function myFunction() {
   let templateinput = document.getElementById("template").value
   let regex=/\#\{(.*?)\}\#/g
   var matches = templateinput.matchAll(regex)
+
+  let uniquematches = matches.filter((element, index) => {
+    return chars.indexOf(element) === index;
+});
   
-  for (const match of matches){
+  for (const match of uniquematches){
+
    document.getElementById("inputbox").innerHTML += "<br/><label>"+match[1]+"</label><br/><textarea id="+match[1]+"></textarea>"
    mergervars.push(match)
   };
