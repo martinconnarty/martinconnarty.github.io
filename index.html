@@ -60,7 +60,7 @@ function myFunction() {
   var matches = templateinput.matchAll(regex)
 
   let uniquematches = matches.filter((element, index) => {
-    return chars.indexOf(element) === index;
+    return matches.indexOf(element) === index;
 });
   
   for (const match of uniquematches){
