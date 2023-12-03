@@ -57,8 +57,6 @@ function myFunction() {
   document.getElementById("inputbox").innerHTML =""
   let templateinput = document.getElementById("template").value
   let regex=/\#\{(.*?)\}\#/g
-  let matches = templateinput.matchAll(regex)
-  console.log("matches="+matches)
   let uniquematches = []
   matches=Array.from(matches[1])
   matches.forEach((element) => {
@@ -66,6 +64,7 @@ function myFunction() {
         uniquematches.push(element);
     }
 });
+   console.log(uniquematches)
   for (const match of uniquematches){
 
    document.getElementById("inputbox").innerHTML += "<br/><label>"+match+"</label><br/><textarea id="+match[1]+"></textarea>"
