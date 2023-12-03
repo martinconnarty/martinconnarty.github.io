@@ -60,7 +60,7 @@ function myFunction() {
   let matches = templateinput.matchAll(regex)
 
   let uniquematches = []
-  matches=matches.isArray()
+  matches=Array.from(matches)
   matches.forEach((element) => {
     if (!uniqueChars.includes(element)) {
         uniqueChars.push(element);
