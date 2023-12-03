@@ -60,7 +60,7 @@ function myFunction() {
   let matches = templateinput.matchAll(regex)
   console.log("matches="+matches)
   let uniquematches = []
-  matches=Array.from(matches)
+  matches=Array.from(matches[1])
   matches.forEach((element) => {
     if (!uniquematches.includes(element)) {
         uniquematches.push(element);
@@ -68,7 +68,7 @@ function myFunction() {
 });
   for (const match of uniquematches){
 
-   document.getElementById("inputbox").innerHTML += "<br/><label>"+match[1]+"</label><br/><textarea id="+match[1]+"></textarea>"
+   document.getElementById("inputbox").innerHTML += "<br/><label>"+match+"</label><br/><textarea id="+match[1]+"></textarea>"
    mergervars.push(match)
   };
 
