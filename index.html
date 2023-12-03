@@ -61,6 +61,7 @@ function myFunction() {
   uniquematch=[]
   for (const match of matches){
     currentmatch=match[1]
+      console.log("currentmatch="+currentmatch)
    uniquematch+=match[1]
       if (!uniquematch.includes(currentmatch)){
    document.getElementById("inputbox").innerHTML += "<br/><label>"+currentmatch+"</label><br/><textarea id="+match[1]+"></textarea>"
