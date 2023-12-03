@@ -78,7 +78,7 @@ function mergerbuilder(){
  for (const mergervar of mergervars){
   valuetochange=mergervar[0]
   replacevalue=document.getElementById(mergervar[1]).value
-  template=template.replace(valuetochange,replacevalue)
+  template=template.replaceAll(valuetochange,replacevalue)
  }
  mergeroutput.innerHTML=template
 }
