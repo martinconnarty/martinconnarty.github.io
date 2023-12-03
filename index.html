@@ -58,7 +58,7 @@ function myFunction() {
   let templateinput = document.getElementById("template").value
   let regex=/\#\{(.*?)\}\#/g
   let matches = templateinput.matchAll(regex)
-
+  console.log("matches="+matches)
   let uniquematches = []
   matches=Array.from(matches)
   matches.forEach((element) => {
