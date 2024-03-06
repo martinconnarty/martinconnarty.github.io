@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html>
+<body background="background.jpeg">
+
+   
+
+    
+    <link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lato">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <style>
+        body {font-family: "Lato", sans-serif;
+    font-size:large;}
+        #mainbody {
+            text-align:center;
+            background-color: black;
+            opacity: 0.8;
+            width:500px;
+            height:100%;
+            color: greenyellow;
+            position: absolute;
+            left:60%;
+        }
+        #timer_div {
+           
+            text-align:center;
+            background-color: black;
+            opacity: 0.8;
+            width:500px;
+            height:100%;
+            color: greenyellow;
+            position: absolute;
+            left:10%;
+        }
+        #click_button{
+            background-color: #04AA6D; /* Green */
+  border: none;
+  color: white;
+  text-align: center;
+  text-decoration: none;
+  display: inline-block;
+  font-size: 50px;
+        }
+        #timer_p{
+            color:red;
+            font-size:5ch;
+        }
+        </style>
+
+<div id="timer_div"><h1><p id="timer"> THE ATTACKERS WILL BE IN SOON!!! <br/><br/>Figure out the job roles and enter their codes to repel the attack!<br/><br/><p id="timer_p">You have <span id="countdowntimer">120 </span> Seconds</p></p></h1></div>
+ <div id="mainbody"><h1>Enter the codes below:</h1>
+    <br/>
+<h4>
+<p id="clue_a"></p></h4>
+<input type="text" id="code_a" value="CODE 1">
+<p id="inputted_code_a"></p>
+
+
+<h4><p id="clue_b"></p></h4>
+<input type="text" id="code_b" value="CODE 2">
+<p id="inputted_code_b"></p>
+
+<p></p><h4><p id="clue_c"></p></h4>
+<input type="text" id="code_c" value="CODE 3">
+<p id="inputted_code_c"></p>
+
+<p></p><h4><p id="clue_d"></p></h4>
+<input type="text" id="code_d" value="CODE 4">
+<p id="inputted_code_d"></p>
+<p></p>
+
+
+
+<button id="click_button" onclick="safeCrack()">Press to enter your codes</button>
+
+</div>
+
+
+
+<script>
+
+var timeleft = 120;
+var var_cracked=false;
+var downloadTimer = setInterval(function(){    
+    timeleft--;
+    document.getElementById("countdowntimer").textContent = timeleft;
+    console.log(var_cracked)
+    if(timeleft <= 0)
+        clearInterval(downloadTimer);
+        if ((document.getElementById("countdowntimer").innerHTML=="0") && (var_cracked==false)){
+        document.getElementById("timer").innerHTML="TIME OVER, THEY'RE IN!"
+    }
+    },1000);
+    
+
+let questions=[];
+questions[15]="A great role if you're not as technical, but want to help train people to be more aware of security";
+questions[13]="Look into the sky and you might see someone working on the security of the white fluffy things!";
+questions[16]="These people discover 0-days (logical flaws that are dangerous) in popular products like phones";
+questions[17]="Have a website, these people will test the app for any security problems to try and access company systems";
+questions[6]="This person is the security leader, and will influence the whole organisation";
+questions[10]="An advanced position who cover threat detection, analysis, and protection";
+questions[7]="This team are the all-arounders, and focus on defence";
+questions[12]="They're not making films, but they do help develop technical strategies in an organisation";
+questions[4]="Someone who combines BLUE and RED teams";
+questions[14]="They sound like they look at clothes for your feet, but actually they're detecting intrusions and doing prevention, monitoring and responding to attackers";
+questions[20]="Maybe some video or audio has been destroyed (media) or needs recovering from a police investigation, these people can help here! ";
+questions[5]="These people help to understand how malicious software works deep down";
+questions[11]="These people look at Open places like the internet to see what information has been published";
+questions[18]="They test industrial control systems and other technology that can be essential to life like elevators or hospital equipment";
+questions[19]="DevOps (how software is written) needs security too, this person helps to inject it into their processes";
+questions[3]="Somone who collects detailed evidence to investigate, such as from phones, a bit like CSI!";
+questions[9]="If the attackers have succeeded , you need these people to help respond. They can help find what happened";
+questions[1]="This person finds attackers based on intelligence that may have slipped through";
+questions[8]="They're not designing buildings, but they do design security at every layer";
+questions[2]="Someone who pretends to be an attacker and makes the blue team stronger";
+questions[1]="This person is the boss!";
+questions[21]="This person is the boss!";
+
+let var_a=0;
+let var_b=0;
+let var_c=0;
+let var_d=0;
+let total_score=0;
+
+let var_a_correct=false;
+let var_b_correct=false;
+let var_c_correct=false;
+let var_d_correct=false;
+
+var_a=Math.floor(Math.random() * 20) + 1;
+var_a=var_a.toString(10);
+//console.log("code 1 is "+var_a);
+document.getElementById("clue_a").innerHTML = questions[var_a]; 
+var_a=Number(var_a);
+
+do {
+    var_b=Math.floor(Math.random() * 20) + 1;
+}
+while (var_b==var_a)
+var_b=var_b.toString(10);
+//console.log("code 2 is "+var_b);
+document.getElementById("clue_b").innerHTML = questions[var_b];
+var_b=parseInt(var_b);     
+
+do {
+    var_c=Math.floor(Math.random() * 20) + 1;
+}
+while (var_c==var_b || var_c==var_a)
+var_c=var_c.toString(10);
+//console.log("code 3 is "+var_c);
+document.getElementById("clue_c").innerHTML = questions[var_c];
+var_c=parseInt(var_c); 
+
+do {
+    var_d=Math.floor(Math.random() * 20) + 1;
+}
+while (var_d==var_a || var_d==var_b || var_d==var_c)
+var_d=var_d.toString(10);
+//console.log("code 4 is "+var_d);
+document.getElementById("clue_d").innerHTML = questions[var_d];
+var_d=parseInt(var_d);
+      
+
+
+
+function safeCrack() {
+
+    
+    var a_inputted = parseInt(document.getElementById("code_a").value,10)
+    if (a_inputted){
+    document.getElementById("inputted_code_a").innerHTML = "You tried: "+a_inputted;
+    console.log(a_inputted+" "+typeof(a_inputted));
+        console.log(var_a+" "+typeof(var_a));
+    if (a_inputted!=var_a){        
+        document.getElementById("inputted_code_a").innerHTML += ". This is wrong!"
+    }
+    else {
+        document.getElementById("inputted_code_a").innerHTML += ". That's RIGHT!"
+        var_a_correct=true;
+    }
+}
+    
+
+    var b_inputted = parseInt(document.getElementById("code_b").value,10)
+    if (b_inputted){
+    document.getElementById("inputted_code_b").innerHTML = "You tried: "+b_inputted;
+    if (b_inputted!=var_b){
+    document.getElementById("inputted_code_b").innerHTML += ". This is wrong!"
+    }
+    else if(b_inputted==var_b) {
+    document.getElementById("inputted_code_b").innerHTML += ". That's RIGHT!"
+         var_b_correct=true;
+    }
+    }
+
+    var c_inputted = parseInt(document.getElementById("code_c").value,10)
+    if (c_inputted){
+    document.getElementById("inputted_code_c").innerHTML = "You tried: "+c_inputted;
+    if (c_inputted!=var_c){
+        document.getElementById("inputted_code_c").innerHTML += ". This is wrong!"
+    } 
+    else if (c_inputted==var_c){
+        document.getElementById("inputted_code_c").innerHTML += ". That's RIGHT!"
+        var_c_correct=true;
+    }
+    }
+
+    var d_inputted = parseInt(document.getElementById("code_d").value,10)
+    if (d_inputted){
+            document.getElementById("inputted_code_d").innerHTML = "You tried: "+d_inputted;
+            if (d_inputted!=var_d){
+                document.getElementById("inputted_code_d").innerHTML += ". This is wrong!"
+            }
+            else if (d_inputted==var_d){
+                document.getElementById("inputted_code_d").innerHTML += ". That's RIGHT!"
+                var_d_correct=true;
+            }   
+    }
+    if (var_a_correct&&var_b_correct&&var_c_correct&&var_d_correct){
+    var_cracked==true
+    var seconds=document.getElementById("countdowntimer").innerHTML
+    document.getElementById("timer").innerHTML="YOU DID IT! WELL DONE! TIME REMAINING "+seconds+" seconds"
+    document.getElementById("timer_p").innerHTML=""
+    }
+    
+}
+
+
+
+    
+</script>
+
+</body>
+</html>
