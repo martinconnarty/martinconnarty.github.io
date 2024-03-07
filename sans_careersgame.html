@@ -90,13 +90,13 @@
         }
         </style>
 
-<div id="timer_div"><img src="Title.png" id="hack_title"></img><h1><p id="timer"> <br/><br/>Enter the job codes to repel the hacking attack!<br/><br/><p id="timer_p">You have <span id="countdowntimer">120 </span> Seconds</p></p></h1>
+<div id="timer_div"><img src="Title.png" id="hack_title"></img><h1><p id="timer"> <br/><br/><h3 id="poster_link"><br/><a target="_blank" href="Poster_Coolest-Careers_v0124_WEB.pdf">Use this SANS poster</a> to understand some job roles in Cybersecurity and answer the questions on the right to repel the attack!</h3> <br/><br/><p id="timer_p">You have <span id="countdowntimer">120 </span> Seconds</p></p></h1>
     <button id="reset_button" onclick="window.location.reload();">Reset</button>
     <button id="click_button" onclick="safeCrack()">Test your defences!</br/> Click me to check</button>
 </div>
 
  <div id="mainbody">
-    <h3 id="poster_link"><a target="_blank" href="Poster_Coolest-Careers_v0124_WEB.pdf">Use this SANS poster to understand some job roles in Cybersecurity</a> </h3> 
+    
     <h2>Find the job role codes based on the descriptions:</h2>    
 <h4>
 <p class="question" id="clue_a"></p></h4>
@@ -183,7 +183,7 @@ let var_d_correct=false;
 
 var_a=Math.floor(Math.random() * 20) + 1;
 var_a=var_a.toString(10);
-\\console.log("code 1 is "+var_a);
+console.log("code 1 is "+var_a);
 document.getElementById("clue_a").innerHTML = questions[var_a]; 
 var_a=Number(var_a);
 
@@ -192,7 +192,7 @@ do {
 }
 while (var_b==var_a)
 var_b=var_b.toString(10);
-\\console.log("code 2 is "+var_b);
+console.log("code 2 is "+var_b);
 document.getElementById("clue_b").innerHTML = questions[var_b];
 var_b=parseInt(var_b);     
 
@@ -201,7 +201,7 @@ do {
 }
 while (var_c==var_b || var_c==var_a)
 var_c=var_c.toString(10);
-\\console.log("code 3 is "+var_c);
+console.log("code 3 is "+var_c);
 document.getElementById("clue_c").innerHTML = questions[var_c];
 var_c=parseInt(var_c); 
 
@@ -210,7 +210,7 @@ do {
 }
 while (var_d==var_a || var_d==var_b || var_d==var_c)
 var_d=var_d.toString(10);
-\\console.log("code 4 is "+var_d);
+console.log("code 4 is "+var_d);
 document.getElementById("clue_d").innerHTML = questions[var_d];
 var_d=parseInt(var_d);
       
