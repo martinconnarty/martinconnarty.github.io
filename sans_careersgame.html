@@ -17,65 +17,106 @@
             text-align:center;
             background-color: black;
             opacity: 0.8;
-            width:500px;
+            width:30%;
             height:100%;
             color: greenyellow;
             position: absolute;
-            left:60%;
+            right:10%;
         }
         #timer_div {
            
             text-align:center;
             background-color: black;
             opacity: 0.8;
-            width:500px;
+            width:50%;
             height:100%;
             color: greenyellow;
             position: absolute;
-            left:10%;
+            left:5%;
+        }
+        #poster_link{
+            text-align:center;
+            color: orchid;
         }
         #click_button{
             background-color: #04AA6D; /* Green */
-  border: none;
-  color: white;
-  text-align: center;
-  text-decoration: none;
-  display: inline-block;
-  font-size: 50px;
+            color: white;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 40px;
+            position: absolute;
+            border:none;
+            opacity: 1;
+            right:5%;
+            top:80%;
+
+        }
+        #reset_button{
+            background-color: orangered;
+            color: white;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 40px;
+            position: absolute;
+            border:none;
+            top: 90%;
+            left: 20%;
+            -ms-transform: translate(-50%, -50%);
+            transform: translate(-50%, -50%);
+
         }
         #timer_p{
             color:red;
-            font-size:5ch;
+            font-size:4.5ch;
+        }
+        #winner{
+            color:green;
+            font-size:6ch;
+        }
+        #hack_title{
+            position:relative;
+            top:5%
+        }
+        #day_saved{
+            max-width: 40%;
+        }
+        .question{
+            color:orange;
+        }
+        .result{
+            font-size: small;
         }
         </style>
 
-<div id="timer_div"><h1><p id="timer"> THE ATTACKERS WILL BE IN SOON!!! <br/><br/><a target="_blank" href="Poster_Coolest-Careers_v0124_WEB.pdf">Figure out the job roles</a> and enter their codes to repel the attack!<br/><br/><p id="timer_p">You have <span id="countdowntimer">120 </span> Seconds</p></p></h1></div>
- <div id="mainbody"><h1>Enter the codes below:</h1>
-    <br/>
-<h4>
-<p id="clue_a"></p></h4>
-<input type="text" id="code_a" value="CODE 1">
-<p id="inputted_code_a"></p>
-
-
-<h4><p id="clue_b"></p></h4>
-<input type="text" id="code_b" value="CODE 2">
-<p id="inputted_code_b"></p>
-
-<p></p><h4><p id="clue_c"></p></h4>
-<input type="text" id="code_c" value="CODE 3">
-<p id="inputted_code_c"></p>
-
-<p></p><h4><p id="clue_d"></p></h4>
-<input type="text" id="code_d" value="CODE 4">
-<p id="inputted_code_d"></p>
-<p></p>
-
-
-
-<button id="click_button" onclick="safeCrack()">Press to enter your codes</button>
-
+<div id="timer_div"><img src="Title.png" id="hack_title"></img><h1><p id="timer"> <br/><br/>Enter the job codes to repel the hacking attack!<br/><br/><p id="timer_p">You have <span id="countdowntimer">120 </span> Seconds</p></p></h1>
+    <button id="reset_button" onclick="window.location.reload();">Reset</button>
+    <button id="click_button" onclick="safeCrack()">Test your defences!</br/> Click me to check</button>
 </div>
+
+ <div id="mainbody">
+    <h3 id="poster_link"><a target="_blank" href="Poster_Coolest-Careers_v0124_WEB.pdf">Use this SANS poster to understand some job roles in Cybersecurity</a> </h3> 
+    <h2>Find the job role codes based on the descriptions:</h2>    
+<h4>
+<p class="question" id="clue_a"></p></h4>
+<input type="text" id="code_a" value="">
+<h5 class="result" id="inputted_code_a"></h5>
+
+
+<h4><p class="question" id="clue_b"></p></h4>
+<input type="text" id="code_b" value="">
+<h5 class="result" id="inputted_code_b"></h5>
+
+<p></p><h4><p class="question" id="clue_c"></p></h4>
+<input type="text" id="code_c" value="">
+<h5 class="result" id="inputted_code_c"></h5>
+
+<p></p><h4><p class="question" id="clue_d"></p></h4>
+<input type="text" id="code_d" value="">
+<h5 class="result" id="inputted_code_d"></h5>
+</div>
+
 
 
 
@@ -83,15 +124,27 @@
 
 var timeleft = 120;
 var var_cracked=false;
-var downloadTimer = setInterval(function(){    
+var downloadTimer = setInterval(function(){
+    if(var_cracked==true){
+            var seconds=document.getElementById("countdowntimer").innerHTML
+            document.getElementById("timer_div").innerHTML="<div id=\"winner\">YOU DID IT! WELL DONE! <br/><img id=\"day_saved\" src=\"daysaved.gif\"><br/> TIME REMAINING <br/>"+seconds+" seconds</div>"
+            document.getElementById("timer_p").innerHTML=""
+        } 
+       
     timeleft--;
     document.getElementById("countdowntimer").textContent = timeleft;
     console.log(var_cracked)
-    if(timeleft <= 0)
+    if(timeleft <= 0){
         clearInterval(downloadTimer);
         if ((document.getElementById("countdowntimer").innerHTML=="0") && (var_cracked==false)){
-        document.getElementById("timer").innerHTML="TIME OVER, THEY'RE IN!"
+        document.getElementById("timer").innerHTML=""
+        let button=document.getElementById("click_button");
+        button.style.backgroundColor="red";
+        button.onclick="";
+        button.innerHTML="TIME OVER! <br/> THEY'RE IN!"        
+        }
     }
+           
     },1000);
     
 
@@ -116,8 +169,6 @@ questions[9]="If the attackers have succeeded , you need these people to help re
 questions[1]="This person finds attackers based on intelligence that may have slipped through";
 questions[8]="They're not designing buildings, but they do design security at every layer";
 questions[2]="Someone who pretends to be an attacker and makes the blue team stronger";
-questions[1]="This person is the boss!";
-questions[21]="This person is the boss!";
 
 let var_a=0;
 let var_b=0;
@@ -132,7 +183,7 @@ let var_d_correct=false;
 
 var_a=Math.floor(Math.random() * 20) + 1;
 var_a=var_a.toString(10);
-//console.log("code 1 is "+var_a);
+console.log("code 1 is "+var_a);
 document.getElementById("clue_a").innerHTML = questions[var_a]; 
 var_a=Number(var_a);
 
@@ -141,7 +192,7 @@ do {
 }
 while (var_b==var_a)
 var_b=var_b.toString(10);
-//console.log("code 2 is "+var_b);
+console.log("code 2 is "+var_b);
 document.getElementById("clue_b").innerHTML = questions[var_b];
 var_b=parseInt(var_b);     
 
@@ -150,7 +201,7 @@ do {
 }
 while (var_c==var_b || var_c==var_a)
 var_c=var_c.toString(10);
-//console.log("code 3 is "+var_c);
+console.log("code 3 is "+var_c);
 document.getElementById("clue_c").innerHTML = questions[var_c];
 var_c=parseInt(var_c); 
 
@@ -159,7 +210,7 @@ do {
 }
 while (var_d==var_a || var_d==var_b || var_d==var_c)
 var_d=var_d.toString(10);
-//console.log("code 4 is "+var_d);
+console.log("code 4 is "+var_d);
 document.getElementById("clue_d").innerHTML = questions[var_d];
 var_d=parseInt(var_d);
       
@@ -220,10 +271,7 @@ function safeCrack() {
             }   
     }
     if (var_a_correct&&var_b_correct&&var_c_correct&&var_d_correct){
-    var_cracked==true
-    var seconds=document.getElementById("countdowntimer").innerHTML
-    document.getElementById("timer").innerHTML="YOU DID IT! WELL DONE! TIME REMAINING "+seconds+" seconds"
-    document.getElementById("timer_p").innerHTML=""
+    var_cracked=true
     }
     
 }
