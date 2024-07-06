@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html>
+ <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Manual Merger</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
+  </head>
+
+<style>
+    #template {
+    background-color: rgb(220, 220, 220);
+    width: 350px;
+    height: 500px;
+    }
+    #mergeroutput {
+    background-color: rgb(220, 220, 220);
+    width: 350px;
+    height: 500px;
+    }
+    </style>
+
+
+<body>
+<center>
+<h2>Merger</h2>
+
+<h3><a href="merger.html">Click here to allow CSV Uploads</a></h3>
+<p>Please enter your template, use #{fieldname}# as placeholders</p>
+
+<textarea id="template"># Title
+#{title}#
+
+## Description
+
+#{description}#
+## Code
+
+```
+#{code}#
+```</textarea>
+<br/><br/>
+<button type="button" onclick="myFunction()">Submit</button>
+
+<p>Now we can replace those values</p>
+<div id="formarea">
+  <p id="inputbox"></p>
+  <button type="button" onclick="mergerbuilder()">Submit</button>
+
+</div>
+This gives
+<h2>Output</h2>
+<button type="button" onclick="download()">Download</button>
+<br/><br/>
+<textarea id="mergeroutput"></textarea>
+ </center>
+</body>
+</html>
+<script>
+const mergervars=[]
+function myFunction() {
+ 
+  document.getElementById("inputbox").innerHTML =""
+  let templateinput = document.getElementById("template").value
+  let regex=/\#\{(.*?)\}\#/g
+  var matches = templateinput.matchAll(regex)
+  uniquematch=[]
+  for (const match of matches){
+    currentmatch=match[1]
+   
+      if (!uniquematch.includes(currentmatch)){
+      uniquematch+=currentmatch
+      console.log("currentmatch="+currentmatch)
+   document.getElementById("inputbox").innerHTML += "<br/><label>"+currentmatch+"</label><br/><textarea id="+match[1]+"></textarea>"
+   mergervars.push(match)
+      }
+  };
+
+  inputbox.innerHTML = inputbox.innerHTML.replace(/\n/g, '<br>\n');
+
+}
+function mergerbuilder(){
+ let template=document.getElementById("template").value
+ for (const mergervar of mergervars){
+  valuetochange=mergervar[0]
+  replacevalue=document.getElementById(mergervar[1]).value
+  template=template.replaceAll(valuetochange,replacevalue)
+ }
+ mergeroutput.innerHTML=template
+}
+
+var input = document.getElementById("myFile");
+var output = document.getElementById("output");
+
+
+function download() {
+    filename="output"
+    type="md"
+    console.log("filename="+filename)
+    data=document.getElementById("mergeroutput").value
+    var file = new Blob([data], {type: type});
+    if (window.navigator.msSaveOrOpenBlob) // IE10+
+        window.navigator.msSaveOrOpenBlob(file, filename);
+    else { // Others
+        var a = document.createElement("a"),
+                url = URL.createObjectURL(file);
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function() {
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);  
+        }, 0); 
+    }
+}
+
+</script>
+<!-- Apologies, if github.io supported basic stats on non-repos I wouldn't use Google Analytics! -->
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-QQLQZPNNLE"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-QQLQZPNNLE');
+</script>
