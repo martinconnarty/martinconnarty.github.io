@@ -94,7 +94,7 @@ let lookupdomains=[];
     const domainregex=
   lookupdomains.forEach(element => {
     levensteinResult=levenshteinDistance(domain,element.match(/(.*?)\./))
-    console.log(levensteinResult)
+    console.log(element.match(/(.*?)\./))
     if (levensteinResult<5){
       document.getElementById("levensteinResult").innerHTML+=element+"<br/>";
     }
