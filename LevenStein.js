@@ -93,7 +93,7 @@ let lookupdomains=[];
 console.log(lookupdomains)
   lookupdomains.forEach(element => {
     levensteinResult=levenshteinDistance(domain,element)
-    if (levensteinResult<3){
+    if (levensteinResult<5){
       document.getElementById("levensteinResult").innerHTML+=element+"<br/>";
     }
     containsResult=containsSearch(domain,element);
