@@ -1,3 +1,4 @@
+
 let lookupdomains=[];
 
  const jaroWinkler = (str1, str2) => {
@@ -89,13 +90,13 @@ let lookupdomains=[];
   document.getElementById("jaroWinklerResult").innerHTML="<h2>jaroWinkler Results:</h2>";
   domain=document.getElementById("domain").value;
   let finalresult=[];  
-    
+  
 
-    const domainregex=
+  const regex = /(.*?)\./;
   lookupdomains.forEach(element => {
-    levensteinResult=levenshteinDistance(domain,element.match(/(.*?)\./))
-    console.log(element.match(/(.*?)\./))
-    if (levensteinResult<5){
+    const extracteddomain = element.match(regex)[1];
+    levensteinResult=levenshteinDistance(domain,extracteddomain)
+    if (levensteinResult<(domain.length/2)){
       document.getElementById("levensteinResult").innerHTML+=element+"<br/>";
     }
     containsResult=containsSearch(domain,element);
@@ -122,4 +123,4 @@ let lookupdomains=[];
       }
     };
     reader.readAsText(file);
-  };  
+  };
