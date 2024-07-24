@@ -1,4 +1,5 @@
 
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -107,9 +108,6 @@
             transform: scale(0.95);
         }
         #clearSelection {
-            background-color: #ff4d4d; /* Pinkish red */
-        }
-        #clearAllTags {
             background-color: #ff4d4d; /* Pinkish red */
         }
         #importInput {
@@ -354,8 +352,8 @@
         }
 
         function exportTags() {
-
-		tags=tags.filter((item,index) => tags.indexOf(item) === index);
+	   
+	   
             const tagsData = {		
                 tags: tags.map(tag => ({ name: tag.name, color: tag.color })),
                 calendar: {}
@@ -371,7 +369,13 @@
                 }
                 tagsData.calendar[day][time] = blockTags;
             });
+	    
+	    const uniqueTags = tagsData.tags.filter((tag, index, self) =>
+  index === self.findIndex((t) => t.id === tag.id && t.name === tag.name)
+);
 
+tagsData.tags = uniqueTags;
+		
             const blob = new Blob([JSON.stringify(tagsData, null, 2)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
