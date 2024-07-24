@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -274,6 +275,7 @@
                 name: tagName,
                 color: tagColor
             };
+	    if (!tags.includes(tag)){
             const tagElement = document.createElement('span');
             tagElement.classList.add('tag');
             tagElement.style.backgroundColor = tag.color;
@@ -281,6 +283,7 @@
             tagContainer.appendChild(tagElement);
             tags.push(tag);
             updateContextMenu();
+	}
         }
 
         function removeTag(button) {
@@ -347,7 +350,9 @@
         }
 
         function exportTags() {
-            const tagsData = {
+
+		tags=tags.filter((item,index) => tags.indexOf(item) === index);
+            const tagsData = {		
                 tags: tags.map(tag => ({ name: tag.name, color: tag.color })),
                 calendar: {}
             };
