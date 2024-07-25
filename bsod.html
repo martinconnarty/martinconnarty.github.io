@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pill Clicker Game</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@700&display=swap" rel="stylesheet"> <!-- Importing a better font -->
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: white; /* Initial background color */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: 'Roboto', sans-serif; /* Using the imported font */
+            position: relative; /* Position relative for absolute elements */
+        }
+        .blue-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: blue;
+            opacity: 0; /* Start fully transparent */
+            transition: opacity 0.5s; /* Smooth transition for opacity */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white; /* Text color for the overlay */
+            text-align: center; /* Center text */
+        }
+        .pill {
+            position: absolute;
+            background-color: yellow; /* Yellow background for pills */
+            color: black; /* Black text for pills */
+            padding: 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 20px;
+            transition: transform 0.2s;
+        }
+        .overlay-text {
+            font-size: 300px; /* Huge text for the sad face */
+            margin: 0;
+        }
+        .overlay-subtext {
+            font-size: 96px; /* Tripled size for the message */
+            margin-top: 20px;
+        }
+        .restart-popup {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: white;
+            color: black;
+            padding: 20px;
+            border: 2px solid blue;
+            border-radius: 10px;
+            text-align: center;
+            display: none; /* Hidden initially */
+            font-size: 24px;
+        }
+        #computersFixed {
+            position: absolute;
+            bottom: 60px;
+            left: 20px;
+            font-size: 24px;
+            color: black;
+        }
+        #madeBy {
+            position: absolute;
+            bottom: 30px;
+            left: 20px;
+            font-size: 24px;
+            color: black;
+        }
+    </style>
+</head>
+<body>
+
+<div class="blue-overlay" id="blueOverlay">
+    <p class="overlay-text">:(</p>
+    <p class="overlay-subtext">Your PC ran into a problem</p>
+</div>
+<div class="restart-popup" id="restartPopup">
+    <p id="finalScore"></p>
+    <p>Oh no, long drive ahead to repair those other machines!</p>
+    <p>Click to restart</p>
+</div>
+<div id="madeBy">Made by Martin Connarty using Perplexity AI<br/></div>
+<div id="computersFixed">Computers Fixed: 0</div>
+
+<script>
+    let timeElapsed = 0; // Timer starts at 0 seconds
+    const fadeDuration = 60000; // 1 minute in milliseconds
+    const pillInterval = 500; // Pills will appear every 0.5 seconds
+    let gameActive = true; // Flag to check if the game is active
+    let computersFixed = 0; // Counter for computers fixed
+    let pillSpawnInterval; // Variable to hold the pill spawning interval
+
+    function updateTimer() {
+        // Calculate opacity based on elapsed time
+        const blueOverlay = document.getElementById('blueOverlay');
+        const opacity = Math.min(timeElapsed / 60, 1); // Max opacity is 1 at 60 seconds
+        blueOverlay.style.opacity = opacity;
+
+        if (timeElapsed >= 60) {
+            gameActive = false; // Pause the game
+            clearInterval(pillSpawnInterval); // Stop spawning pills
+            showRestartPopup(); // Show the restart popup
+        }
+    }
+
+    function showRestartPopup() {
+        const restartPopup = document.getElementById('restartPopup');
+        document.getElementById('finalScore').innerText = `You scored ${computersFixed} computers fixed!`; // Show final score
+        restartPopup.style.display = 'block'; // Show the restart popup
+        document.body.style.opacity = 0.5; // Dim the background
+    }
+
+    function restartGame() {
+        timeElapsed = 0; // Reset timer
+        computersFixed = 0; // Reset computers fixed counter
+        document.getElementById('computersFixed').innerText = `Computers Fixed: ${computersFixed}`; // Update display
+        document.getElementById('restartPopup').style.display = 'none'; // Hide popup
+        document.body.style.opacity = 1; // Restore background opacity
+        gameActive = true; // Restart the game
+
+        // Clear existing pills
+        const pills = document.querySelectorAll('.pill');
+        pills.forEach(pill => pill.remove());
+
+        // Restart intervals
+        setInterval(() => {
+            if (gameActive) {
+                timeElapsed++; // Increment time every second
+                updateTimer();
+            }
+        }, 1000);
+        pillSpawnInterval = setInterval(spawnPill, pillInterval); // Create pills every 0.5 seconds
+    }
+
+    function spawnPill() {
+        if (!gameActive) return; // Don't spawn pills if the game is paused
+
+        const pill = document.createElement('div');
+        pill.className = 'pill';
+        pill.innerText = 'C-00000291*.sys';
+        pill.style.top = Math.random() * (window.innerHeight - 50) + 'px';
+        pill.style.left = Math.random() * (window.innerWidth - 150) + 'px';
+
+        pill.onclick = function() {
+            timeElapsed -= 0.8; // Remove 0.8 seconds
+            if (timeElapsed < 0) timeElapsed = 0; // Prevent negative time
+            computersFixed++; // Increment computers fixed counter
+            document.getElementById('computersFixed').innerText = `Computers Fixed: ${computersFixed}`; // Update display
+            updateTimer();
+            pill.remove(); // Remove the pill
+        };
+
+        document.body.appendChild(pill);
+
+        // Remove the pill after a certain time if not clicked
+        setTimeout(() => {
+            if (pill.parentNode) {
+                pill.remove();
+            }
+        }, 3000); // 3 seconds lifespan if not clicked
+    }
+
+    // Start the game loop
+    pillSpawnInterval = setInterval(spawnPill, pillInterval); // Create pills every 0.5 seconds
+
+    // Start the timer
+    setInterval(() => {
+        if (gameActive) {
+            timeElapsed++; // Increment time every second
+            updateTimer();
+        }
+    }, 1000);
+
+    // Event listener for restarting the game
+    document.getElementById('restartPopup').onclick = restartGame;
+</script>
+
+</body>
+</html>
