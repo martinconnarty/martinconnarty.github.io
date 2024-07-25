@@ -159,7 +159,7 @@
         pill.style.left = Math.random() * (window.innerWidth - 150) + 'px';
 
         pill.onclick = function() {
-            timeElapsed -= 0.8; // Remove 0.8 seconds
+            timeElapsed -= 0.6; // Remove 0.6 seconds
             if (timeElapsed < 0) timeElapsed = 0; // Prevent negative time
             computersFixed++; // Increment computers fixed counter
             document.getElementById('computersFixed').innerText = `Computers Fixed: ${computersFixed}`; // Update display
