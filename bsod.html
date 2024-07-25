@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Blue Screen of Attack attack</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"> <!-- Viewport settings for mobile -->
+    <title>Stop the BSODs!</title>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@700&display=swap" rel="stylesheet"> <!-- Importing a better font -->
     <style>
         body {
@@ -16,6 +16,7 @@
             height: 100vh;
             font-family: 'Roboto', sans-serif; /* Using the imported font */
             position: relative; /* Position relative for absolute elements */
+            touch-action: manipulation; /* Prevents double-tap zoom on mobile */
         }
         .blue-overlay {
             position: absolute;
@@ -37,11 +38,13 @@
             position: absolute;
             background-color: yellow; /* Yellow background for pills */
             color: black; /* Black text for pills */
-            padding: 10px;
+            padding: 15px; /* Increased padding for easier tapping */
             border-radius: 5px;
             cursor: pointer;
             font-size: 20px;
             transition: transform 0.2s;
+            min-width: 120px; /* Minimum width for pills */
+            text-align: center; /* Center text in pills */
         }
         .overlay-text {
             font-size: 300px; /* Huge text for the sad face */
@@ -64,18 +67,19 @@
             text-align: center;
             display: none; /* Hidden initially */
             font-size: 24px;
+            max-width: 90%; /* Responsive width */
         }
         #computersFixed {
             position: absolute;
-            bottom: 60pt;
-            left: 20pt;
+            bottom: 60px;
+            left: 20px;
             font-size: 24px;
             color: black;
         }
         #madeBy {
             position: absolute;
-            bottom: 30pt;
-            left: 20pt;
+            bottom: 20px;
+            left: 20px;
             font-size: 24px;
             color: black;
         }
@@ -89,11 +93,11 @@
 </div>
 <div class="restart-popup" id="restartPopup">
     <p id="finalScore"></p>
-    <p>Oh no, long drive ahead to repair those other machines!</p>
+    <p>Oh no, long drive ahead to repair that machine!</p>
     <p>Click to restart</p>
 </div>
-<div id="madeBy">Made by Martin Connarty using Perplexity AI<br/></div>
 <div id="computersFixed">Computers Fixed: 0</div>
+<div id="madeBy">Created by Martin Connarty with Perplexity.ai</div>
 
 <script>
     let timeElapsed = 0; // Timer starts at 0 seconds
