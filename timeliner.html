@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Timeline Creator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        form, #importExport {
+            background-color: #f0f0f0;
+            padding: 20px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 5px;
+            margin-bottom: 10px;
+        }
+        #timeline {
+            margin-top: 30px;
+        }
+        .event {
+            cursor: pointer;
+            padding: 10px;
+            background-color: #e0e0e0;
+            margin-bottom: 5px;
+            border-radius: 3px;
+            position: relative;
+        }
+        .event:hover {
+            background-color: #d0d0d0;
+        }
+        .details {
+            display: none;
+            padding: 10px;
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            margin-top: 5px;
+            border-radius: 3px;
+        }
+        button {
+            padding: 5px 10px;
+            margin-right: 10px;
+        }
+        .date-input-container {
+            display: flex;
+            align-items: center;
+        }
+        #useNowCheckbox {
+            margin-left: 10px;
+            margin-right: 5px;
+        }
+        .delete-btn {
+            position: absolute;
+            right: 5px;
+            top: 5px;
+            background-color: #ff4444;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>Timeline Creator</h1>
+	<h3>Created by Martin Connarty using Perplexity AI
+    
+    <form id="eventForm">
+        <h2>Add Event</h2>
+        <input type="text" id="eventTitle" placeholder="Event Title" required>
+        <div class="date-input-container">
+            <input type="datetime-local" id="eventDate" required>
+            <input type="checkbox" id="useNowCheckbox">
+            <label for="useNowCheckbox">Use current time</label>
+        </div>
+        <input type="text" id="author" placeholder="Author" required>
+        <textarea id="eventDetails" placeholder="Event Details" rows="4" required></textarea>
+        <input type="text" id="fileName" placeholder="File Name (optional)">
+        <input type="text" id="fileHash" placeholder="File Hash (optional)">
+        <button type="submit">Add Event</button>
+    </form>
+
+    <div id="importExport">
+        <h2>Import/Export</h2>
+        <button id="exportBtn">Export Timeline</button>
+        <button id="importBtn">Import Timeline</button>
+        <button id="markdownBtn">Generate Markdown</button>
+        <button id="sortBtn">Sort by Time</button>
+        <input type="file" id="importFile" accept=".json" style="display: none;">
+    </div>
+
+    <div id="timeline">
+        <h2>Timeline</h2>
+        <!-- Events will be added here -->
+    </div>
+
+    <script>
+        const eventForm = document.getElementById('eventForm');
+        const timeline = document.getElementById('timeline');
+        const exportBtn = document.getElementById('exportBtn');
+        const importBtn = document.getElementById('importBtn');
+        const importFile = document.getElementById('importFile');
+        const eventDate = document.getElementById('eventDate');
+        const useNowCheckbox = document.getElementById('useNowCheckbox');
+        const markdownBtn = document.getElementById('markdownBtn');
+        const sortBtn = document.getElementById('sortBtn');
+        let events = [];
+
+        useNowCheckbox.addEventListener('change', function() {
+            eventDate.disabled = this.checked;
+            if (this.checked) {
+                eventDate.value = '';
+            }
+        });
+
+        eventForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const title = document.getElementById('eventTitle').value;
+            let date;
+            if (useNowCheckbox.checked) {
+                date = new Date().toISOString().slice(0, 16);
+            } else {
+                date = eventDate.value;
+            }
+            const author = document.getElementById('author').value;
+            const details = document.getElementById('eventDetails').value;
+            const fileName = document.getElementById('fileName').value;
+            const fileHash = document.getElementById('fileHash').value;
+
+            events.push({ title, date, author, details, fileName, fileHash });
+            events.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+            updateTimeline();
+            eventForm.reset();
+            eventDate.disabled = false;
+        });
+
+        function updateTimeline() {
+            timeline.innerHTML = '<h2>Timeline</h2>';
+            events.forEach((event, index) => {
+                const eventElement = document.createElement('div');
+                eventElement.className = 'event';
+                eventElement.innerHTML = `
+                    <strong>${formatDate(event.date)}</strong>: ${event.title}
+                    <div class="details" id="details-${index}">
+                        <strong>Author:</strong> ${event.author}<br>
+                        ${event.details}
+                        ${event.fileName ? `<br><strong>File Name:</strong> ${event.fileName}` : ''}
+                        ${event.fileHash ? `<br><strong>File Hash:</strong> ${event.fileHash}` : ''}
+                    </div>
+                    <button class="delete-btn" onclick="deleteEvent(${index})">X</button>
+                `;
+                eventElement.addEventListener('click', (e) => {
+                    if (!e.target.classList.contains('delete-btn')) {
+                        toggleDetails(index);
+                    }
+                });
+                timeline.appendChild(eventElement);
+            });
+        }
+
+        function formatDate(dateString) {
+            const options = { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+            return new Date(dateString).toLocaleDateString('en-US', options);
+        }
+
+        function toggleDetails(index) {
+            const detailsElement = document.getElementById(`details-${index}`);
+            detailsElement.style.display = detailsElement.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function deleteEvent(index) {
+            events.splice(index, 1);
+            updateTimeline();
+        }
+
+        exportBtn.addEventListener('click', function() {
+            const dataStr = JSON.stringify(events);
+            const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+            
+            const exportFileDefaultName = 'timeline_export.json';
+
+            const linkElement = document.createElement('a');
+            linkElement.setAttribute('href', dataUri);
+            linkElement.setAttribute('download', exportFileDefaultName);
+            linkElement.click();
+        });
+
+        importBtn.addEventListener('click', function() {
+            importFile.click();
+        });
+
+        importFile.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    try {
+                        events = JSON.parse(e.target.result);
+                        updateTimeline();
+                    } catch (error) {
+                        alert('Error importing file. Please make sure it\'s a valid JSON file.');
+                    }
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        markdownBtn.addEventListener('click', function() {
+            const markdownOutput = generateMarkdown(events);
+            const textArea = document.createElement('textarea');
+            textArea.value = markdownOutput;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+            alert('Markdown output copied to clipboard!');
+        });
+
+        sortBtn.addEventListener('click', function() {
+            events.sort((a, b) => new Date(a.date) - new Date(b.date));
+            updateTimeline();
+        });
+
+        function generateMarkdown(events) {
+            let markdown = '# Timeline\n\n';
+            events.forEach((event) => {
+                markdown += `## ${formatDate(event.date)} - ${event.title}\n\n`;
+                markdown += `**Author:** ${event.author}\n\n`;
+                markdown += `${event.details}\n\n`;
+                if (event.fileName) {
+                    markdown += `**File Name:** ${event.fileName}\n\n`;
+                }
+                if (event.fileHash) {
+                    markdown += `**File Hash:** ${event.fileHash}\n\n`;
+                }
+                markdown += '---\n\n';
+            });
+            return markdown;
+        }
+    </script>
+</body>
+</html>
