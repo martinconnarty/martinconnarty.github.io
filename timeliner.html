@@ -76,9 +76,10 @@
         <h2>Add Event</h2>
         <input type="text" id="eventTitle" placeholder="Event Title" required>
         <div class="date-input-container">
+		<h3>Manually add time (remember use UTC)</h3>
             <input type="datetime-local" id="eventDate" required>
             <input type="checkbox" id="useNowCheckbox">
-            <label for="useNowCheckbox">Use current time</label>
+            <label for="useNowCheckbox">Use current time (UTC)</label>
         </div>
         <input type="text" id="author" placeholder="Author" required>
         <textarea id="eventDetails" placeholder="Event Details" rows="4" required></textarea>
@@ -149,7 +150,7 @@
                 const eventElement = document.createElement('div');
                 eventElement.className = 'event';
                 eventElement.innerHTML = `
-                    <strong>${formatDate(event.date)}</strong>: ${event.title}
+                    <strong>${formatDate(event.date)} UTC</strong>: ${event.title}
                     <div class="details" id="details-${index}">
                         <strong>Author:</strong> ${event.author}<br>
                         ${event.details}
