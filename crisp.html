@@ -1,1 +1,613 @@
 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Crisp Ratings</title>
+  <link href="https://fonts.googleapis.com/css?family=Inter:400,700&display=swap" rel="stylesheet">
+  <style>
+    html, body {
+      height: 100%; margin: 0; padding: 0;
+      font-family: 'Inter', sans-serif; background: #f8fafc;
+      color: #222;
+    }
+    body {
+      max-width: 500px; margin: 0 auto; padding: 0 8px 40px;
+    }
+    h1 {
+      text-align: center; font-weight: 800;
+      letter-spacing: -2px; margin-top: 18px; margin-bottom: 0.5em;
+      color: #3d4852;
+    }
+    .chip-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;}
+    .chip {
+      display: flex; align-items: center;
+      background: #ffffff;
+      border-radius: 999px; border: 1px solid #d1d5db;
+      font-size: 15px; padding: 5px 14px; box-shadow: 0 1px 2px #0001;
+      margin-right: 0;
+      margin-bottom: 0;
+      transition: box-shadow 0.18s;
+    }
+    .chip .x {
+      margin-left: 8px; color: #e53e3e; cursor: pointer; font-size: 1.18em;
+      padding: 0 2px 0 0; line-height: 1;
+    }
+    .chip.add {
+      background: #e0f2fe; color: #0284c7;
+      border-color: #7dd3fc;
+      cursor: pointer; font-weight: 700;
+    }
+    .section-card {
+      background: #fff; border-radius: 16px; box-shadow: 0 1px 8px #0002;
+      padding: 18px 16px 10px; margin-bottom: 20px;
+    }
+    .section-title {
+      font-size: 1.03em; font-weight: 700; margin-bottom: 9px;
+      letter-spacing: 0.2px; color: #0ea5e9;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .crisp-list { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 2px;}
+    .crisp-chip {
+      padding: 6px 15px; font-size: 1em;
+      border-radius: 40px; border: 1px solid #a5b4fc;
+      background: linear-gradient(90deg,#f1f5f9,#e0e7ff);
+      cursor: pointer; margin-bottom: 6px; font-weight: 500;
+      position: relative;
+      min-width: 55px; text-align: center;
+      outline: none; transition: box-shadow 0.2s;
+      color: #3730a3;
+    }
+    .crisp-chip.selected, .crisp-chip:active {
+      background: #818cf8; color: #fff; box-shadow: 0 2px 8px #6366f140;
+    }
+    .crisp-chip .x {
+      position: absolute; right: 5px; top: 1px; color: #e53e3e; font-size: 1em;
+      cursor: pointer; padding: 0 1px; background: none;
+    }
+    .crisp-chip .x:hover { color: #dc2626; }
+    .crisp-chip input {
+      font-size: 1em; border: none; background: transparent; outline: none; width: 80px;
+      color: #1e293b; font-family: inherit; font-weight: 600;
+    }
+    .crisp-chip input:focus { background: #fff; }
+    .crisp-chip.add {
+      border: 1.5px dashed #7dd3fc; color: #0284c7; background: #e0f2fe;
+      font-weight: 700;
+    }
+    .question-subtitle {
+      font-weight: 600; letter-spacing: 0.1px; font-size: 1.04em;
+      margin: 14px 0 6px; color: #3b82f6;
+    }
+    .vote-person {
+      font-size: 1.1em;
+      font-weight: 600; margin: 6px 0 8px 0;
+      text-align: left;
+      color: #27272a;
+      letter-spacing: 0.05em;
+    }
+    .score-row {
+      display: flex; gap: 7px;
+      justify-content: center; margin-bottom: 9px;
+    }
+    .score-btn {
+      width: 37px; height: 37px; border-radius: 100px;
+      background: #e0e7ff;
+      font-size: 1.1em; border: 1.6px solid #6366f1;
+      color: #3136ab; font-weight: 600; outline: none;
+      cursor: pointer; transition: all 0.12s;
+    }
+    .score-btn.selected, .score-btn:active {
+      background: #6366f1; color: #fff;
+      box-shadow: 0 2px 7px #818cf866;
+      border-color: #312e81;
+    }
+    .next-btn {
+      display: block;
+      width: 100%; margin: 13px 0 0px 0; padding: 13px 0;
+      border-radius: 9px; border: none; background: linear-gradient(90deg,#647de7,#7ca9fa 80%);
+      font-size: 1.14em; color:#fff; font-weight: 700; letter-spacing:1px;
+      box-shadow: 0 2px 8px #747dd570;
+      cursor: pointer; transition: background 0.16s,box-shadow 0.12s;
+    }
+    .next-btn:active { background: #4f46e5;}
+
+    .score-badge {
+      display: inline-block;
+      font-weight: 700;
+      font-size: 1.08em;
+      border-radius: 16px;
+      padding: 5px 15px 5px 13px;
+      margin: 0 7px 7px 0;
+      background: #e0f2fe; color: #0284c7;
+      border: 1.2px solid #7dd3fc;
+      box-shadow: 0 1px 4px #3b82f610;
+      vertical-align: middle;
+    }
+    .score-badge.crisp { background: #bef264; color: #365314; border-color: #d9f99d;}
+    .score-badge.overall { background: #fee2e2; color: #991b1b; border-color: #fecaca;}
+    .score-badge.winner { background: #fed7aa; color: #c2410c; border-color: #fdba74;}
+    .score-list-table {
+      margin-bottom: 10px; width: 100%; border-collapse: collapse;
+    }
+    .score-list-table th, .score-list-table td {
+      padding: 7px 10px 7px 7px;
+      border: none;
+      font-size: 1em;
+      text-align: left;
+    }
+    .score-list-table th { color: #0ea5e9; font-weight: 800; letter-spacing:0.03em;}
+    .score-list-table tr.winner td { background: #fef3c7;}
+    .summary-table {
+      border-collapse: collapse; width: 100%; margin-bottom: 7px;
+      font-size: 1em;
+    }
+    .summary-table td, .summary-table th {
+      border: 1px solid #e0e7ef; padding: 7px 7px 7px 5px;
+      text-align: center;
+    }
+    .summary-table th {
+      background: #e0e7ff; font-weight: 700; color: #3730a3;
+    }
+    .summary-table tr:nth-child(even) { background: #f8fafc; }
+    .summary-table tr:nth-child(odd) { background: #f4f6fc; }
+    .summary-table td.person {
+      font-weight: 600; text-align: left; color: #334155;
+      background: #f1f5f9;
+    }
+    .summary-avg {
+      font-weight: 700; color: #0284c7; font-size: 1.07em;
+      background: #e0f2fe; border-radius: 9px;
+      padding: 5px 9px; display: inline-block; margin-bottom:6px;
+    }
+    .export-btn {
+      appearance: none; background: #0ea5e9; border: none; color: #fff;
+      border-radius: 7px; font-size: 0.97em;
+      padding: 9px 16px; margin: 2px 0 2px 0;
+      font-weight: 700; cursor: pointer; float: right;
+      box-shadow: 0 1px 5px #0ea5e960;
+      transition: background .13s;
+    }
+    .export-btn:active { background: #24609d;}
+    @media (max-width: 450px) {
+      body {
+        padding: 0 2px;
+      }
+      .section-card {
+        padding: 11px 8px 8px;
+      }
+      .chip-list, .crisp-list { gap: 4px; }
+      .crisp-chip, .chip { padding: 4px 10px; font-size: 0.93em;}
+      .score-btn { width:34px; height:34px; font-size:1.05em;}
+      .next-btn {padding: 9px 0;}
+      .score-list-table th, .score-list-table td { padding: 6px 5px; }
+    }
+    .footer {
+      margin-top: 18px;
+      text-align: center;
+      font-size: 0.97em;
+      color: #64748b;
+    }
+  </style>
+</head>
+<body>
+  <h1>Crisp Ratings</h1>
+
+  <div class="section-card">
+    <div class="section-title">
+      👥 People
+    </div>
+    <div class="chip-list" id="peopleList"></div>
+  </div>
+  <div class="section-card">
+    <div class="section-title">
+      🥔 Crisps
+    </div>
+    <div class="crisp-list" id="crispsList"></div>
+  </div>
+  <div class="section-card" id="votingPanel" style="display:none"></div>
+  <div class="section-card" id="summaryPanel" style="display:none">
+    <div class="section-title">
+      <span>Results</span>
+      <button class="export-btn" onclick="exportCSV()">Export CSV</button>
+    </div>
+    <div id="allCrispScores"></div>
+    <div style="margin-bottom:9px;">
+      <label for="summaryCrispSelect" style="font-weight:600; font-size:1.03em; color:#3b82f6">Crisp: </label>
+      <select id="summaryCrispSelect" style="font-size:1em; margin-bottom:6px;"></select>
+    </div>
+    <div id="summaryContent"></div>
+  </div>
+
+  <div class="footer">
+    Crisp-taster v1.2 &mdash; by Perplexity AI
+  </div>
+
+  <script>
+    // --- Globals/state ---
+    const QUESTIONS = [
+      "Flavour Enjoyment",
+      "Flavour Adherence",
+      "Texture",
+      "Structural Integrity",
+      "Packaging"
+    ];
+
+    let people = []; // Array of {id, name}
+    let crisps = []; // Array of {id, name}
+    let votes = {};  // Votes: { [crispId]: { [personId]: [5 numbers] } }
+    let curCrispId = null;
+    let voting = { questionIdx:0, personIdx:0 };
+
+    // --- Utils ---
+    function uid() { return Math.random().toString(36).substring(2,9) + (Date.now()%1000);}
+    function qid(idx) { return 'Q'+(idx+1);}
+    function scrollToPanel(id) {
+      const el = document.getElementById(id);
+      if (el) el.scrollIntoView({behavior:'smooth', block:'start'});
+    }
+
+    // --- Renderers ---
+    function renderPeople() {
+      const el = document.getElementById('peopleList');
+      el.innerHTML = '';
+      people.forEach(person=>{
+        const c = document.createElement('span');
+        c.className = 'chip';
+        c.textContent = person.name;
+        const x = document.createElement('span');
+        x.className = 'x'; x.textContent = "×";
+        x.onclick = ()=>{removePerson(person.id);};
+        c.appendChild(x);
+        el.appendChild(c);
+      });
+      // Add button
+      const addBtn = document.createElement('span');
+      addBtn.className = 'chip add';
+      addBtn.textContent = '+ Add';
+      addBtn.onclick = ()=>{
+        let name = prompt("Person's name:");
+        if (name) addPerson(name.trim());
+      }
+      el.appendChild(addBtn);
+    }
+
+    function renderCrisps() {
+      const el = document.getElementById('crispsList');
+      el.innerHTML = '';
+      crisps.forEach(crisp=>{
+        let chip = document.createElement('span');
+        chip.className = 'crisp-chip' + (curCrispId===crisp.id? ' selected' : '');
+        let nameSpan = document.createElement('span');
+        nameSpan.textContent = crisp.name;
+        chip.appendChild(nameSpan);
+
+        chip.onclick = (ev)=>{
+          if (ev.target.classList.contains('x')) return; // X button
+          setCurrentCrisp(crisp.id);
+        };
+        // X (delete)
+        let x = document.createElement('span');
+        x.className="x"; x.textContent="×";
+        x.onclick = (e)=>{e.stopPropagation(); removeCrisp(crisp.id)};
+        chip.appendChild(x);
+
+        el.appendChild(chip);
+      });
+      // Add button
+      let addBtn = document.createElement('span');
+      addBtn.className = 'crisp-chip add';
+      addBtn.textContent = '+ Add';
+      addBtn.onclick = ()=>{
+        let name = prompt("Crisp name:");
+        if (name) addCrisp(name.trim());
+      }
+      el.appendChild(addBtn);
+    }
+
+    function renderVotingPanel() {
+      let panel = document.getElementById('votingPanel');
+      if (!curCrispId || !people.length) {
+        panel.style.display="none";
+        return;
+      }
+      panel.style.display="block";
+      const crisp = crisps.find(c=>c.id===curCrispId);
+      const curVotes = votes[curCrispId] || {};
+      // See if all voting is finished
+      let finished = true;
+      for (let p of people)
+        if (!curVotes[p.id] || curVotes[p.id].length < QUESTIONS.length)
+          finished = false;
+      if (finished) {
+        panel.innerHTML = `
+          <div style="text-align:center; margin:12px 0 6px 0;">
+            <span class="summary-avg">All scores submitted for <b>${crisp.name}</b>!</span>
+          </div>
+          <button class="next-btn" onclick="showSummary('${curCrispId}')">View Results</button>
+        `;
+        document.getElementById('summaryPanel').style.display="block";
+        populateSummaryCrispDropdown();
+        showLiveSummary();
+        return;
+      }
+
+      // Figure out next incomplete person, question pair
+      let qIdx, pIdx;
+      outer: for(qIdx=0; qIdx<QUESTIONS.length; qIdx++) {
+        for(pIdx=0; pIdx<people.length; pIdx++) {
+          let person = people[pIdx];
+          let pv = curVotes[person.id]||[];
+          if (pv.length <= qIdx) break outer;
+        }
+      }
+      voting.questionIdx = qIdx;
+      voting.personIdx = pIdx;
+      let person = people[pIdx];
+      let q = QUESTIONS[qIdx];
+      let pv = curVotes[person.id]||[];
+
+      panel.innerHTML = `
+        <div class="question-subtitle">
+          <span style="color:#7c3aed; font-weight:600;">${crisp.name}</span>
+          &mdash; <span style="font-weight:400; color:#374151;">${qid(qIdx)}.</span> ${q}
+        </div>
+        <div class="vote-person">${person.name}, your rating?</div>
+        <div class="score-row" id="scoreRow"></div>
+        <button class="next-btn" id="voteNextBtn" style="margin-top:7px; display:none" disabled>Next</button>
+      `;
+
+      // Scores
+      let scoreRow = document.getElementById('scoreRow');
+      for(let s=1;s<=5;s++) {
+        let btn = document.createElement('button');
+        btn.className = 'score-btn';
+        btn.textContent = s;
+        btn.onclick = ()=>{
+          selectScore(s);
+        };
+        scoreRow.appendChild(btn);
+      }
+
+      showLiveSummary();
+    }
+
+    function renderSummaryPanel() {
+      const sp = document.getElementById('summaryPanel');
+      if (!crisps.length) {
+        sp.style.display = "none"; return;
+      }
+      sp.style.display = "block";
+      populateSummaryCrispDropdown();
+      showSummary(document.getElementById('summaryCrispSelect').value);
+      renderAllCrispScores();
+    }
+
+    // --- Event Handlers ---
+    function addPerson(name) {
+      if (!name) return;
+      name = name.slice(0,18);
+      if (people.find(p=>p.name.toLowerCase()===name.toLowerCase())) {
+        alert("That person is already added."); return;
+      }
+      let id = uid();
+      people.push({id,name});
+      renderPeople();
+      renderVotingPanel();
+      renderSummaryPanel();
+    }
+    function removePerson(id) {
+      people = people.filter(p=>p.id!==id);
+      for (let c in votes) {delete votes[c][id];}
+      renderPeople();
+      renderVotingPanel();
+      renderSummaryPanel();
+    }
+    function addCrisp(name) {
+      if (!name) return;
+      name = name.slice(0,32);
+      if (crisps.find(c=>c.name.toLowerCase()===name.toLowerCase())) {
+        alert("That crisp is already added."); return;
+      }
+      let id = uid();
+      crisps.push({id,name});
+      votes[id] = {};
+      curCrispId = id;
+      renderCrisps();
+      renderVotingPanel();
+      renderSummaryPanel();
+      scrollToPanel('votingPanel');
+    }
+    function removeCrisp(id) {
+      crisps = crisps.filter(c=>c.id!==id);
+      delete votes[id];
+      if (curCrispId === id) curCrispId = crisps.length?crisps[0].id:null;
+      renderCrisps();
+      renderVotingPanel();
+      renderSummaryPanel();
+    }
+    function setCurrentCrisp(id) {
+      curCrispId = id;
+      renderCrisps();
+      renderVotingPanel();
+      scrollToPanel('votingPanel');
+    }
+    function selectScore(score) {
+      let {questionIdx, personIdx} = voting;
+      let person = people[personIdx];
+      let pv = votes[curCrispId][person.id]=votes[curCrispId][person.id]||[];
+      pv[questionIdx]=score;
+      // Show "Next" button
+      let btns = document.getElementsByClassName('score-btn');
+      for(let i=0;i<btns.length;i++) {
+        btns[i].classList.remove('selected');
+        if (btns[i].textContent == score) btns[i].classList.add('selected');
+      }
+      let nextBtn = document.getElementById('voteNextBtn');
+      nextBtn.disabled = false;
+      nextBtn.style.display = "block";
+      nextBtn.onclick = ()=>{goToNextVote();};
+      showLiveSummary();
+    }
+    function goToNextVote() {
+      voting.personIdx++;
+      let {questionIdx, personIdx} = voting;
+      if (personIdx >= people.length) {
+        voting.personIdx = 0; voting.questionIdx++;
+      }
+      renderVotingPanel();
+      scrollToPanel('votingPanel');
+    }
+
+    // --- Averages & Scores ---
+    function perCrispScore(crispId) {
+      let curVotes = votes[crispId]||{};
+      let qAvgs = [];
+      for(let q=0;q<QUESTIONS.length;q++) {
+        let arr = people.map(p=>{
+          let v=(curVotes[p.id]||[])[q];
+          return (typeof v==='number') ? v : null;
+        }).filter(v=>v!==null);
+        if (arr.length===0) { qAvgs.push(null); continue; }
+        qAvgs.push(arr.reduce((a,b)=>a+b,0)/arr.length);
+      }
+      let scoredQs = qAvgs.filter(v=>typeof v==='number');
+      if (scoredQs.length===0) return null;
+      return scoredQs.reduce((a,b)=>a+b,0)/scoredQs.length;
+    }
+    function overallScore() {
+      let all = [];
+      for(let c of crisps) {
+        let s = perCrispScore(c.id);
+        if (typeof s === "number" && !isNaN(s)) all.push(s);
+      }
+      if (all.length===0) return null;
+      return all.reduce((a,b)=>a+b,0)/all.length;
+    }
+
+    // --- All Crisp Scores Table ---
+    function renderAllCrispScores() {
+      let el = document.getElementById("allCrispScores");
+      if (!crisps.length) { el.innerHTML = ""; return; }
+      let scores = crisps.map(c=>{
+        return {
+          name: c.name, 
+          id: c.id,
+          score: perCrispScore(c.id)
+        }
+      });
+      // Exclude crisps with no score at all, sort by descending score
+      let scored = scores.filter(x=>typeof x.score === "number" && !isNaN(x.score));
+      scored.sort((a,b)=>b.score - a.score);
+      let max = scored.length>0 ? scored[0].score : null;
+
+      let html = '';
+      let overall = overallScore();
+      html += `<span class="score-badge overall">Overall Score: ${typeof overall==='number' ? overall.toFixed(2): '–'}</span>`;
+      if(scores.length) {
+        html += `<table class="score-list-table"><tr><th>Crisp</th><th>Score</th></tr>`;
+        for(let s of scored) {
+          html += `<tr${s.score===max?' class="winner"':''}><td>${s.name}</td><td${s.score===max?' style="font-weight:700;color:#eab308;"':''}>${typeof s.score==='number'?s.score.toFixed(2):'–'}${s.score===max?" 🏆":""}</td></tr>`;
+        }
+        html += `</table>`;
+      }
+      el.innerHTML = html;
+    }
+
+    // --- Summary Panel/Live Results ---
+    function populateSummaryCrispDropdown() {
+      let sel = document.getElementById('summaryCrispSelect');
+      sel.innerHTML = '';
+      crisps.forEach(c=>{
+        let opt = document.createElement('option');
+        opt.value = c.id; opt.textContent = c.name;
+        sel.appendChild(opt);
+      });
+      sel.onchange = ()=>{showSummary(sel.value); renderAllCrispScores();};
+      if (curCrispId) sel.value = curCrispId;
+    }
+
+    function showSummary(crispId) {
+      let content = document.getElementById('summaryContent');
+      if (!crispId) {content.innerHTML = ''; return;}
+
+      let crisp = crisps.find(c=>c.id===crispId);
+      let curVotes = votes[crispId] || {};
+      // --- Scores ---
+      let thisCrispScore = perCrispScore(crispId);
+
+      let badgeHTML = '';
+      badgeHTML += `<span class="score-badge crisp">Crisp Score: ${thisCrispScore&&typeof thisCrispScore==='number' ? thisCrispScore.toFixed(2) : '–'}</span>`;
+
+      // For each question, get avg and table
+      let html = badgeHTML;
+      html += `<div style="font-weight:600; color:#7c3aed;margin-top:3px;">${crisp.name}</div>`;
+      let nQ = QUESTIONS.length;
+      html += `<table class="summary-table">
+        <tr>
+          <th>Question</th>
+          <th>Average</th>
+          ${people.map(p=>`<th>${p.name}</th>`).join('')}
+        </tr>
+      `;
+      for(let q=0; q<nQ; q++) {
+        let scores = people.map(p=>{
+          let v=(curVotes[p.id]||[])[q];
+          return v!==undefined ? v : '';
+        });
+        let valids=scores.filter(v=>typeof v==='number');
+        let avg = valids.length? (valids.reduce((a,b)=>a+b,0)/valids.length).toFixed(2) : "-";
+        html += `<tr>
+          <td><b>${qid(q)}</b> <span style="color:#6d28d9; font-size:0.92em;">${QUESTIONS[q]}</span></td>
+          <td>${avg}</td>
+          ${scores.map(s=>`<td>${s===''?'—':s}</td>`).join('')}
+        </tr>`;
+      }
+      html += `</table>`;
+      content.innerHTML = html;
+      scrollToPanel('summaryPanel');
+    }
+    // Live-updating summary panel and overall scores!
+    function showLiveSummary() {
+      if (!curCrispId) return;
+      const sp = document.getElementById('summaryPanel');
+      if (!crisps.length) { sp.style.display = "none"; return;}
+      sp.style.display = "block";
+      let sel = document.getElementById('summaryCrispSelect');
+      if (sel && sel.value !== curCrispId) { sel.value = curCrispId;}
+      showSummary(curCrispId);
+      renderAllCrispScores();
+    }
+
+    function exportCSV() {
+      let lines = [];
+      lines.push(['Crisp Name', 'Person', ...QUESTIONS.map((q,i)=>qid(i)+": "+q)].join(','));
+      crisps.forEach(c=>{
+        let votesFor = votes[c.id]||{};
+        people.forEach(p=>{
+          let v = votesFor[p.id]||[];
+          lines.push([
+            `"${c.name.replace(/"/g,'""')}"`,
+            `"${p.name.replace(/"/g,'""')}"`,
+            ...QUESTIONS.map((_,i)=>v[i]!==undefined?v[i]:'')
+          ].join(','));
+        });
+      });
+      let csv = lines.join('\r\n');
+      let blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+      let url = URL.createObjectURL(blob);
+      let a = document.createElement('a');
+      a.href=url; a.download='crisp_ratings.csv';
+      a.click();
+      setTimeout(()=>URL.revokeObjectURL(url),500);
+    }
+
+    // --- First render ---
+    renderPeople();
+    renderCrisps();
+    renderVotingPanel();
+    renderSummaryPanel();
+  </script>
+</body>
+</html>
