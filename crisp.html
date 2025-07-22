@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Crisp Ratings</title>
-  <link href="https://fonts.googleapis.com/css?family=Inter:400,700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css?family=Inter:400,700&display=swap" rel="stylesheet" />
   <style>
     html, body {
       height: 100%; margin: 0; padding: 0;
@@ -224,7 +224,6 @@
   </div>
 
   <script>
-    // --- Globals/state ---
     const QUESTIONS = [
       "Flavour Enjoyment",
       "Flavour Adherence",
@@ -233,13 +232,12 @@
       "Packaging"
     ];
 
-    let people = []; // Array of {id, name}
-    let crisps = []; // Array of {id, name}
-    let votes = {};  // Votes: { [crispId]: { [personId]: [5 numbers] } }
+    let people = [];
+    let crisps = [];
+    let votes = {};
     let curCrispId = null;
     let voting = { questionIdx:0, personIdx:0 };
 
-    // --- Utils ---
     function uid() { return Math.random().toString(36).substring(2,9) + (Date.now()%1000);}
     function qid(idx) { return 'Q'+(idx+1);}
     function scrollToPanel(id) {
@@ -247,7 +245,6 @@
       if (el) el.scrollIntoView({behavior:'smooth', block:'start'});
     }
 
-    // --- Renderers ---
     function renderPeople() {
       const el = document.getElementById('peopleList');
       el.innerHTML = '';
@@ -261,7 +258,6 @@
         c.appendChild(x);
         el.appendChild(c);
       });
-      // Add button
       const addBtn = document.createElement('span');
       addBtn.className = 'chip add';
       addBtn.textContent = '+ Add';
@@ -283,10 +279,9 @@
         chip.appendChild(nameSpan);
 
         chip.onclick = (ev)=>{
-          if (ev.target.classList.contains('x')) return; // X button
+          if (ev.target.classList.contains('x')) return;
           setCurrentCrisp(crisp.id);
         };
-        // X (delete)
         let x = document.createElement('span');
         x.className="x"; x.textContent="×";
         x.onclick = (e)=>{e.stopPropagation(); removeCrisp(crisp.id)};
@@ -294,7 +289,6 @@
 
         el.appendChild(chip);
       });
-      // Add button
       let addBtn = document.createElement('span');
       addBtn.className = 'crisp-chip add';
       addBtn.textContent = '+ Add';
@@ -314,7 +308,6 @@
       panel.style.display="block";
       const crisp = crisps.find(c=>c.id===curCrispId);
       const curVotes = votes[curCrispId] || {};
-      // See if all voting is finished
       let finished = true;
       for (let p of people)
         if (!curVotes[p.id] || curVotes[p.id].length < QUESTIONS.length)
@@ -331,8 +324,6 @@
         showLiveSummary();
         return;
       }
-
-      // Figure out next incomplete person, question pair
       let qIdx, pIdx;
       outer: for(qIdx=0; qIdx<QUESTIONS.length; qIdx++) {
         for(pIdx=0; pIdx<people.length; pIdx++) {
@@ -345,8 +336,6 @@
       voting.personIdx = pIdx;
       let person = people[pIdx];
       let q = QUESTIONS[qIdx];
-      let pv = curVotes[person.id]||[];
-
       panel.innerHTML = `
         <div class="question-subtitle">
           <span style="color:#7c3aed; font-weight:600;">${crisp.name}</span>
@@ -356,8 +345,6 @@
         <div class="score-row" id="scoreRow"></div>
         <button class="next-btn" id="voteNextBtn" style="margin-top:7px; display:none" disabled>Next</button>
       `;
-
-      // Scores
       let scoreRow = document.getElementById('scoreRow');
       for(let s=1;s<=5;s++) {
         let btn = document.createElement('button');
@@ -368,7 +355,6 @@
         };
         scoreRow.appendChild(btn);
       }
-
       showLiveSummary();
     }
 
@@ -383,7 +369,6 @@
       renderAllCrispScores();
     }
 
-    // --- Event Handlers ---
     function addPerson(name) {
       if (!name) return;
       name = name.slice(0,18);
@@ -437,7 +422,6 @@
       let person = people[personIdx];
       let pv = votes[curCrispId][person.id]=votes[curCrispId][person.id]||[];
       pv[questionIdx]=score;
-      // Show "Next" button
       let btns = document.getElementsByClassName('score-btn');
       for(let i=0;i<btns.length;i++) {
         btns[i].classList.remove('selected');
@@ -459,7 +443,6 @@
       scrollToPanel('votingPanel');
     }
 
-    // --- Averages & Scores ---
     function perCrispScore(crispId) {
       let curVotes = votes[crispId]||{};
       let qAvgs = [];
@@ -485,18 +468,16 @@
       return all.reduce((a,b)=>a+b,0)/all.length;
     }
 
-    // --- All Crisp Scores Table ---
     function renderAllCrispScores() {
       let el = document.getElementById("allCrispScores");
       if (!crisps.length) { el.innerHTML = ""; return; }
       let scores = crisps.map(c=>{
         return {
-          name: c.name, 
+          name: c.name,
           id: c.id,
           score: perCrispScore(c.id)
         }
       });
-      // Exclude crisps with no score at all, sort by descending score
       let scored = scores.filter(x=>typeof x.score === "number" && !isNaN(x.score));
       scored.sort((a,b)=>b.score - a.score);
       let max = scored.length>0 ? scored[0].score : null;
@@ -507,14 +488,13 @@
       if(scores.length) {
         html += `<table class="score-list-table"><tr><th>Crisp</th><th>Score</th></tr>`;
         for(let s of scored) {
-          html += `<tr${s.score===max?' class="winner"':''}><td>${s.name}</td><td${s.score===max?' style="font-weight:700;color:#eab308;"':''}>${typeof s.score==='number'?s.score.toFixed(2):'–'}${s.score===max?" 🏆":""}</td></tr>`;
+          html += `<tr${s.score===max?' class="winner"':''}><td>${s.name}</td><td${s.score===max?' style="font-weight:700;color:#eab308;"':''}>${s.score.toFixed(2)}${s.score===max?" 🏆":""}</td></tr>`;
         }
         html += `</table>`;
       }
       el.innerHTML = html;
     }
 
-    // --- Summary Panel/Live Results ---
     function populateSummaryCrispDropdown() {
       let sel = document.getElementById('summaryCrispSelect');
       sel.innerHTML = '';
@@ -533,13 +513,10 @@
 
       let crisp = crisps.find(c=>c.id===crispId);
       let curVotes = votes[crispId] || {};
-      // --- Scores ---
       let thisCrispScore = perCrispScore(crispId);
 
-      let badgeHTML = '';
-      badgeHTML += `<span class="score-badge crisp">Crisp Score: ${thisCrispScore&&typeof thisCrispScore==='number' ? thisCrispScore.toFixed(2) : '–'}</span>`;
+      let badgeHTML = `<span class="score-badge crisp">Crisp Score: ${thisCrispScore&&typeof thisCrispScore==='number' ? thisCrispScore.toFixed(2) : '–'}</span>`;
 
-      // For each question, get avg and table
       let html = badgeHTML;
       html += `<div style="font-weight:600; color:#7c3aed;margin-top:3px;">${crisp.name}</div>`;
       let nQ = QUESTIONS.length;
@@ -565,9 +542,8 @@
       }
       html += `</table>`;
       content.innerHTML = html;
-      scrollToPanel('summaryPanel');
     }
-    // Live-updating summary panel and overall scores!
+
     function showLiveSummary() {
       if (!curCrispId) return;
       const sp = document.getElementById('summaryPanel');
@@ -602,7 +578,7 @@
       setTimeout(()=>URL.revokeObjectURL(url),500);
     }
 
-    // --- First render ---
+    // Initial renders
     renderPeople();
     renderCrisps();
     renderVotingPanel();
