@@ -125,7 +125,6 @@
       vertical-align: middle;
     }
     .score-badge.crisp { background: #bef264; color: #365314; border-color: #d9f99d;}
-    .score-badge.overall { background: #fee2e2; color: #991b1b; border-color: #fecaca;}
     .score-badge.winner { background: #fed7aa; color: #c2410c; border-color: #fdba74;}
     .score-list-table {
       margin-bottom: 10px; width: 100%; border-collapse: collapse;
@@ -220,7 +219,7 @@
   </div>
 
   <div class="footer">
-    Crisp-taster v1.2 &mdash; by Perplexity AI
+    Crisp-taster v1.3 &mdash; by Perplexity AI
   </div>
 
   <script>
@@ -458,15 +457,6 @@
       if (scoredQs.length===0) return null;
       return scoredQs.reduce((a,b)=>a+b,0)/scoredQs.length;
     }
-    function overallScore() {
-      let all = [];
-      for(let c of crisps) {
-        let s = perCrispScore(c.id);
-        if (typeof s === "number" && !isNaN(s)) all.push(s);
-      }
-      if (all.length===0) return null;
-      return all.reduce((a,b)=>a+b,0)/all.length;
-    }
 
     function renderAllCrispScores() {
       let el = document.getElementById("allCrispScores");
@@ -483,8 +473,6 @@
       let max = scored.length>0 ? scored[0].score : null;
 
       let html = '';
-      let overall = overallScore();
-      html += `<span class="score-badge overall">Overall Score: ${typeof overall==='number' ? overall.toFixed(2): '–'}</span>`;
       if(scores.length) {
         html += `<table class="score-list-table"><tr><th>Crisp</th><th>Score</th></tr>`;
         for(let s of scored) {
@@ -578,7 +566,6 @@
       setTimeout(()=>URL.revokeObjectURL(url),500);
     }
 
-    // Initial renders
     renderPeople();
     renderCrisps();
     renderVotingPanel();
