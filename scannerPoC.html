@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>/24 Smart HTTPS Scanner</title>
+    <title>/24 Smart HTTPS Scanner - WORKING VERSION</title>
     <style>
         body { font-family: sans-serif; margin: 1.5rem; }
         .ip-box { 
@@ -96,6 +96,7 @@
             allResponses.clear();
             p80Baseline = [];
             scanComplete = false;
+            setStatus("Cleared");
         }
 
         function scanPort(ip, port, callback) {
@@ -165,36 +166,37 @@
         }
 
         function smartScan(prefix) {
-            setStatus("Phase 1: Port 80 baseline scan (254 IPs)...");
-            
+            setStatus("Phase 1: Port 80 baseline (254 IPs)");
             p80Baseline = [];
             let p80Completed = 0;
             
             for (let i = 1; i <= 254; i++) {
-                const host = prefix + "." + i;
-                scanPort(host, 80, (time) => {
-                    p80Baseline.push({ip: host, time});
-                    p80Completed++;
-                    updateProgress(p80Completed, 254);
-                    
-                    if (p80Completed === 254) {
-                        allResponses.set(80, p80Baseline.slice());
-                        const p80Median = getP80Median();
-                        const outlierIps = p80Baseline
-                            .filter(t => t.time <= p80Median / 4)
-                            .sort((a,b) => a.time - b.time)
-                            .slice(0, 20)
-                            .map(t => t.ip);
+                (function(i) {
+                    const host = prefix + "." + i;
+                    scanPort(host, 80, (time) => {
+                        p80Baseline.push({ip: host, time});
+                        p80Completed++;
+                        updateProgress(p80Completed, 254);
                         
-                        setStatus(`Phase 1 complete. Phase 2: ${outlierIps.length} outliers → dummy ports`);
-                        proceedToPhase2(outlierIps, prefix);
-                    }
-                });
+                        if (p80Completed === 254) {
+                            allResponses.set(80, p80Baseline.slice());
+                            const p80Median = getP80Median();
+                            const outlierIps = p80Baseline
+                                .filter(t => t.time <= p80Median / 4)
+                                .sort((a,b) => a.time - b.time)
+                                .slice(0, 20)
+                                .map(t => t.ip);
+                            
+                            setStatus(`Phase 2: ${outlierIps.length} outliers → dummy ports`);
+                            proceedToPhase2(outlierIps, prefix);
+                        }
+                    });
+                })(i);
             }
         }
 
         function proceedToPhase2(outlierIps, prefix) {
-            const dummyPorts = [777, 999, 1337, 1234, 666, 555, 2222];
+            const dummyPorts = [777, 999, 1337, 1234, 666];
             let phase2Total = outlierIps.length * dummyPorts.length;
             let phase2Completed = 0;
             
@@ -203,13 +205,13 @@
                     scanPort(ip, port, (time) => {
                         const portData = allResponses.get(port) || [];
                         portData.push({ip, time});
-                        allResponses.set(port, portData.slice());
+                        allResponses.set(port, portData);
                         
                         phase2Completed++;
                         updateProgress(phase2Completed, phase2Total);
                         
                         if (phase2Completed === phase2Total) {
-                            setStatus("Phase 2 complete. Phase 3: Web ports scan...");
+                            setStatus("Phase 3: Web ports scan...");
                             proceedToPhase3(prefix);
                         }
                     });
@@ -218,7 +220,7 @@
         }
 
         function proceedToPhase3(prefix) {
-            const webPorts = [443, 8006, 8443, 8000, 8080, 3000, 8081];
+            const webPorts = [443, 8006, 8443, 8000, 8080];
             let phase3Total = 254 * webPorts.length;
             let phase3Completed = 0;
             
@@ -235,7 +237,7 @@
                         updateProgress(phase3Completed, phase3Total);
                         
                         if (phase3Completed === phase3Total) {
-                            setStatus("Smart scan complete! Red=4x faster than P80 median");
+                            setStatus("Complete!");
                             scanComplete = true;
                             renderPortBoxes();
                         }
@@ -253,7 +255,6 @@
             
             const mode = modeSelect.value;
             clearResults();
-            scanComplete = false;
             
             if (mode === 'smart') {
                 smartScan(prefix);
@@ -289,15 +290,12 @@
             }
         }
 
-        // Event listeners
         startBtn.addEventListener('click', scanSubnet);
         clearBtn.addEventListener('click', clearResults);
         thresholdInput.addEventListener('input', renderPortBoxes);
         modeSelect.addEventListener('change', function() {
             portsLabel.style.display = this.value === 'ports' ? 'block' : 'none';
         });
-
-        // Initial setup
         modeSelect.dispatchEvent(new Event('change'));
     </script>
 </body>
