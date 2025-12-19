@@ -2,9 +2,21 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>/24 Smart HTTPS Scanner - WORKING VERSION</title>
+    <title>/24 Smart HTTPS Scanner</title>
     <style>
         body { font-family: sans-serif; margin: 1.5rem; }
+        table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+        th, td { border: 1px solid #ccc; padding: 0.5rem; text-align: left; }
+        th { background: #f0f0f0; cursor: pointer; user-select: none; }
+        th:hover { background: #e0e0e0; }
+        a { color: #0066cc; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        #status { margin-top: 0.5rem; font-style: italic; }
+        #progress { margin-top: 0.5rem; font-family: monospace; }
+        .fast-row { background: #d4edda; }
+        .outlier-row { background: #fff3cd; }
+        .sorted-asc::after { content: " ▲"; }
+        .sorted-desc::after { content: " ▼"; }
         .ip-box { 
             border: 2px solid #28a745; 
             margin: 1rem 0; 
@@ -12,7 +24,6 @@
             background: #f8fff9;
             border-radius: 8px;
         }
-        .ip-box.variance-high { border-color: #ff6b6b; background: #fff5f5; }
         .ip-box h3 { margin-top: 0; color: #155724; }
         .port-links { margin: 0.5rem 0; }
         .port-links a { 
@@ -26,11 +37,11 @@
             font-family: monospace;
         }
         .port-links a:hover { background: #218838; }
-        .port-links a.variance-high { background: #ff6b6b !important; }
-        #status { margin-top: 0.5rem; font-style: italic; }
-        #progress { margin-top: 0.5rem; font-family: monospace; }
+        .http-link { background: #17a2b8 !important; }
+        .http-link:hover { background: #138496 !important; }
+        .variance-high { background: #dc3545 !important; }
+        .variance-high:hover { background: #c82333 !important; }
         select { margin: 0.2rem; }
-        label { display: block; margin-bottom: 0.5rem; }
     </style>
 </head>
 <body>
@@ -40,10 +51,12 @@
         Netblock prefix (first three octets, /24):
         <input id="netPrefix" type="text" value="192.168.0" size="12">
     </label>
+    <br><br>
     <label>
         Time threshold (ms):
         <input id="threshold" type="number" value="2000" min="0" step="100">
     </label>
+    <br><br>
     <label>
         Mode:
         <select id="mode">
@@ -51,10 +64,12 @@
             <option value="smart">Smart scan</option>
         </select>
     </label>
+    <br><br>
     <label id="portsLabel" style="display: block;">
         Ports (comma separated): 
         <input id="ports" type="text" value="443,8006,8443,8000" size="25">
     </label>
+    <br><br>
     <button id="start">Start scan</button>
     <button id="clear">Clear</button>
 
@@ -75,9 +90,9 @@
         const progressEl = document.getElementById('progress');
         const resultsContainer = document.getElementById('results');
 
-        let allResponses = new Map();
-        let p80Baseline = [];
-        let scanComplete = false;
+        let allResponses = new Map(); // port -> [{ip, time}]
+        let p80Baseline = []; // For smart scan reference
+        let currentThreshold = 2000;
 
         function setStatus(msg) {
             statusEl.textContent = "Status: " + msg;
@@ -95,12 +110,10 @@
             resultsContainer.innerHTML = "";
             allResponses.clear();
             p80Baseline = [];
-            scanComplete = false;
-            setStatus("Cleared");
         }
 
-        function scanPort(ip, port, callback) {
-            const protocol = port === 80 ? 'http' : 'https';
+        function scanPort(ip, port, callback, useHttp = false) {
+            const protocol = useHttp ? 'http' : 'https';
             const url = `${protocol}://${ip}:${port}/?t=${Date.now()}`;
             const startTime = performance.now();
             
@@ -111,52 +124,48 @@
             });
         }
 
-        function getP80Median() {
-            if (p80Baseline.length === 0) return 10000;
-            const sorted = p80Baseline.map(t => t.time).sort((a,b) => a - b);
-            return sorted[Math.floor(sorted.length / 2)];
-        }
-
         function renderPortBoxes() {
-            if (!scanComplete) return;
-            
             const threshold = getThreshold();
-            const p80Median = getP80Median();
             const ipPortMap = {};
             
+            // Aggregate all responses per IP (4x faster than p80 baseline for smart scan)
             allResponses.forEach((portData, port) => {
-                portData.forEach(({ip, time}) => {
+                const isPort80 = port === 80;
+                portData.filter(r => {
+                    if (isPort80) return r.time <= threshold;
+                    // For other ports, compare to p80 baseline for this IP
+                    const p80Time = p80Baseline.find(b => b.ip === r.ip);
+                    return p80Time ? r.time <= p80Time.time / 4 : r.time <= threshold;
+                }).forEach(({ip, time}) => {
                     if (!ipPortMap[ip]) ipPortMap[ip] = [];
-                    ipPortMap[ip].push({port, time, variance: p80Median ? time / p80Median : 1});
+                    ipPortMap[ip].push({port, time});
                 });
             });
             
             resultsContainer.innerHTML = "";
             
             Object.entries(ipPortMap)
-                .filter(([ip, ports]) => ports.some(p => p.time <= threshold))
-                .sort(([ip1, ports1], [ip2, ports2]) => {
-                    const score1 = ports1.filter(p => p.time <= threshold).length;
-                    const score2 = ports2.filter(p => p.time <= threshold).length;
-                    return score2 - score1;
-                })
+                .filter(([ip, ports]) => ports.length > 0)
+                .sort(([ip1, ports1], [ip2, ports2]) => ports2.length - ports1.length)
                 .forEach(([ip, ports]) => {
-                    const fastCount = ports.filter(p => p.time <= threshold).length;
+                    const p80Time = p80Baseline.find(b => b.ip === ip);
                     const box = document.createElement('div');
                     box.className = 'ip-box';
-                    
-                    const hasHighVariance = ports.some(p => p.variance < 0.25);
-                    if (hasHighVariance) box.classList.add('variance-high');
-                    
                     box.innerHTML = `
-                        <h3>${ip} (${fastCount}/${ports.length} ports ≤ ${threshold}ms)</h3>
+                        <h3>${ip} (${ports.length} fast ports) ${p80Time ? `(p80: ${p80Time.time.toFixed(0)}ms)` : ''}</h3>
                         <div class="port-links">
                             ${ports.sort((a,b) => a.time - b.time)
                                    .map(p => {
-                                       const varClass = p.variance < 0.25 ? 'variance-high' : '';
-                                       const protocol = p.port === 80 ? 'http' : 'https';
-                                       return `<a href="${protocol}://${ip}:${p.port}/" target="_blank" rel="noreferrer" class="${varClass}">
-                                            ${p.port} (${p.time.toFixed(0)}ms | ${p.variance.toFixed(1)}x)
+                                       const p80Ref = p80Baseline.find(b => b.ip === p.ip);
+                                       const variance = p80Ref ? (p80Ref.time / p.time).toFixed(1) + 'x' : '';
+                                       const isHighVariance = p80Ref && p80Ref.time / p.time >= 4;
+                                       const isPort80 = p.port === 80;
+                                       
+                                       return `<a href="${isPort80 ? 'http' : 'https'}://${ip}:${p.port}/" 
+                                                    target="_blank" rel="noreferrer"
+                                                    class="${isPort80 ? 'http-link' : ''} ${isHighVariance ? 'variance-high' : ''}"
+                                                    title="Variance: ${variance}">
+                                            ${p.port} (${p.time.toFixed(0)}ms) ${variance}
                                         </a>`;
                                    }).join('')}
                         </div>
@@ -165,64 +174,32 @@
                 });
         }
 
-        function smartScan(prefix) {
-            setStatus("Phase 1: Port 80 baseline (254 IPs)");
-            p80Baseline = [];
+        async function smartScan(prefix) {
+            setStatus("Phase 1: Port 80 baseline (4x filter reference)...");
+            
+            // Phase 1: Port 80 across all IPs
             let p80Completed = 0;
             
             for (let i = 1; i <= 254; i++) {
-                (function(i) {
-                    const host = prefix + "." + i;
-                    scanPort(host, 80, (time) => {
-                        p80Baseline.push({ip: host, time});
-                        p80Completed++;
-                        updateProgress(p80Completed, 254);
-                        
-                        if (p80Completed === 254) {
-                            allResponses.set(80, p80Baseline.slice());
-                            const p80Median = getP80Median();
-                            const outlierIps = p80Baseline
-                                .filter(t => t.time <= p80Median / 4)
-                                .sort((a,b) => a.time - b.time)
-                                .slice(0, 20)
-                                .map(t => t.ip);
-                            
-                            setStatus(`Phase 2: ${outlierIps.length} outliers → dummy ports`);
-                            proceedToPhase2(outlierIps, prefix);
-                        }
-                    });
-                })(i);
+                const host = prefix + "." + i;
+                scanPort(host, 80, (time) => {
+                    p80Baseline.push({ip: host, time});
+                    p80Completed++;
+                    updateProgress(p80Completed, 254);
+                    
+                    if (p80Completed === 254) {
+                        allResponses.set(80, p80Baseline.slice());
+                        setStatus("Phase 2: Web ports (comparing to p80 baseline)...");
+                        proceedToPhase2(prefix);
+                    }
+                }, true); // HTTP for port 80
             }
         }
 
-        function proceedToPhase2(outlierIps, prefix) {
-            const dummyPorts = [777, 999, 1337, 1234, 666];
-            let phase2Total = outlierIps.length * dummyPorts.length;
+        function proceedToPhase2(prefix) {
+            const webPorts = [443, 8006, 8443, 8000, 8080, 3000];
+            let phase2Total = 254 * webPorts.length;
             let phase2Completed = 0;
-            
-            dummyPorts.forEach(port => {
-                outlierIps.forEach(ip => {
-                    scanPort(ip, port, (time) => {
-                        const portData = allResponses.get(port) || [];
-                        portData.push({ip, time});
-                        allResponses.set(port, portData);
-                        
-                        phase2Completed++;
-                        updateProgress(phase2Completed, phase2Total);
-                        
-                        if (phase2Completed === phase2Total) {
-                            setStatus("Phase 3: Web ports scan...");
-                            proceedToPhase3(prefix);
-                        }
-                    });
-                });
-            });
-        }
-
-        function proceedToPhase3(prefix) {
-            const webPorts = [443, 8006, 8443, 8000, 8080];
-            let phase3Total = 254 * webPorts.length;
-            let phase3Completed = 0;
             
             webPorts.forEach(port => {
                 allResponses.set(port, []);
@@ -232,13 +209,13 @@
                     scanPort(host, port, (time) => {
                         const portData = allResponses.get(port);
                         portData.push({ip: host, time});
+                        allResponses.set(port, portData);
                         
-                        phase3Completed++;
-                        updateProgress(phase3Completed, phase3Total);
+                        phase2Completed++;
+                        updateProgress(phase2Completed, phase2Total);
                         
-                        if (phase3Completed === phase3Total) {
-                            setStatus("Complete!");
-                            scanComplete = true;
+                        if (phase2Completed === phase2Total) {
+                            setStatus("Smart scan complete!");
                             renderPortBoxes();
                         }
                     });
@@ -255,6 +232,7 @@
             
             const mode = modeSelect.value;
             clearResults();
+            currentThreshold = getThreshold();
             
             if (mode === 'smart') {
                 smartScan(prefix);
@@ -276,12 +254,12 @@
                         scanPort(host, port, (time) => {
                             const portData = allResponses.get(port);
                             portData.push({ip: host, time});
+                            allResponses.set(port, portData);
                             completed++;
                             updateProgress(completed, totalRequests);
                             
                             if (completed === totalRequests) {
                                 setStatus("Manual scan complete!");
-                                scanComplete = true;
                                 renderPortBoxes();
                             }
                         });
@@ -290,12 +268,15 @@
             }
         }
 
+        // Event listeners
         startBtn.addEventListener('click', scanSubnet);
         clearBtn.addEventListener('click', clearResults);
         thresholdInput.addEventListener('input', renderPortBoxes);
         modeSelect.addEventListener('change', function() {
             portsLabel.style.display = this.value === 'ports' ? 'block' : 'none';
         });
+
+        // Initial setup
         modeSelect.dispatchEvent(new Event('change'));
     </script>
 </body>
