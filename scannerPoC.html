@@ -37,6 +37,7 @@
             font-family: monospace;
         }
         .port-links a:hover { background: #218838; }
+        .variance-high { background: #ff6b6b !important; }
         select { margin: 0.2rem; }
     </style>
 </head>
@@ -87,6 +88,7 @@
         const resultsContainer = document.getElementById('results');
 
         let allResponses = new Map(); // port -> [{ip, time}]
+        let p80Baseline = [];
         let currentThreshold = 2000;
 
         function setStatus(msg) {
@@ -104,6 +106,7 @@
         function clearResults() {
             resultsContainer.innerHTML = "";
             allResponses.clear();
+            p80Baseline = [];
         }
 
         function scanPort(ip, port, callback) {
@@ -117,39 +120,49 @@
             });
         }
 
+        function getP80Median() {
+            if (p80Baseline.length === 0) return 10000;
+            const sorted = p80Baseline.map(t => t.time).sort((a,b) => a - b);
+            return sorted[Math.floor(sorted.length / 2)];
+        }
+
         function renderPortBoxes() {
             const threshold = getThreshold();
+            const p80Median = getP80Median();
             const ipPortMap = {};
             
-            // Aggregate all fast responses per IP
+            // Aggregate all fast responses per IP (≤ threshold)
             allResponses.forEach((portData, port) => {
                 portData.filter(r => r.time <= threshold)
                        .sort((a,b) => a.time - b.time)
-                       .slice(0, 10) // Top 10 per port
+                       .slice(0, 10)
                        .forEach(({ip, time}) => {
                            if (!ipPortMap[ip]) ipPortMap[ip] = [];
-                           ipPortMap[ip].push({port, time});
+                           ipPortMap[ip].push({port, time, variance: time / p80Median});
                        });
             });
             
             resultsContainer.innerHTML = "";
             
-            // Render boxes for IPs with multiple fast ports
             Object.entries(ipPortMap)
                 .filter(([ip, ports]) => ports.length > 0)
                 .sort(([ip1, ports1], [ip2, ports2]) => ports2.length - ports1.length)
                 .forEach(([ip, ports]) => {
                     const box = document.createElement('div');
                     box.className = 'ip-box';
+                    const hasHighVariance = ports.some(p => p.variance < 0.25); // 4x faster than median
+                    if (hasHighVariance) box.classList.add('variance-high');
+                    
                     box.innerHTML = `
                         <h3>${ip} (${ports.length} ports ≤ ${threshold}ms)</h3>
                         <div class="port-links">
                             ${ports.sort((a,b) => a.time - b.time)
-                                   .map(p => 
-                                       `<a href="https://${ip}:${p.port}/" target="_blank" rel="noreferrer">
-                                            ${p.port} (${p.time.toFixed(0)}ms)
-                                        </a>`
-                                   ).join('')}
+                                   .map(p => {
+                                       const varClass = p.variance < 0.25 ? 'variance-high' : '';
+                                       return `<a href="https://${ip}:${p.port}/" target="_blank" rel="noreferrer" class="${varClass}">
+                                            ${p.port} (${p.time.toFixed(0)}ms | ${p.variance.toFixed(1)}x)
+                                        </a>`;
+                                   }).join('')}
                         </div>
                     `;
                     resultsContainer.appendChild(box);
@@ -159,33 +172,31 @@
         async function smartScan(prefix) {
             setStatus("Phase 1: Port 80 baseline...");
             
-            // Phase 1: Port 80 outliers
-            const p80Times = [];
             let p80Completed = 0;
-            
             for (let i = 1; i <= 254; i++) {
                 const host = prefix + "." + i;
                 scanPort(host, 80, (time) => {
-                    p80Times.push({ip: host, time});
+                    p80Baseline.push({ip: host, time});
                     p80Completed++;
                     updateProgress(p80Completed, 254);
                     
                     if (p80Completed === 254) {
-                        allResponses.set(80, p80Times);
-                        proceedToPhase2(p80Times, prefix);
+                        allResponses.set(80, p80Baseline);
+                        const p80Median = getP80Median();
+                        const outlierIps = p80Baseline
+                            .filter(t => t.time <= p80Median / 4) // 4x faster than median
+                            .sort((a,b) => a.time - b.time)
+                            .slice(0, 15)
+                            .map(t => t.ip);
+                        
+                        setStatus(`Phase 2: ${outlierIps.length} outliers (≤${p80Median/4|0}ms) → random ports...`);
+                        proceedToPhase2(outlierIps, prefix);
                     }
                 });
             }
         }
 
-        function proceedToPhase2(p80Times, prefix) {
-            const outlierIps = p80Times
-                .sort((a,b) => a.time - b.time)
-                .slice(0, 15) // Top 15 outliers
-                .map(t => t.ip);
-            
-            setStatus(`Phase 2: Testing outliers on random ports...`);
-            
+        function proceedToPhase2(outlierIps, prefix) {
             const randomPorts = [777, 999, 1337, 1234, 666];
             let phase2Total = outlierIps.length * randomPorts.length;
             let phase2Completed = 0;
@@ -209,7 +220,7 @@
         }
 
         function proceedToPhase3(prefix) {
-            setStatus("Phase 3: Web ports scan...");
+            setStatus("Phase 3: Web ports (comparing to P80 baseline)...");
             
             const webPorts = [443, 8006, 8443, 8000, 8080, 3000];
             let phase3Total = 254 * webPorts.length;
@@ -229,7 +240,7 @@
                         updateProgress(phase3Completed, phase3Total);
                         
                         if (phase3Completed === phase3Total) {
-                            setStatus("Smart scan complete!");
+                            setStatus("Smart scan complete! Red=4x faster than P80 median");
                             renderPortBoxes();
                         }
                     });
