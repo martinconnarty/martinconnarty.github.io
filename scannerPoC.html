@@ -12,6 +12,7 @@
             background: #f8fff9;
             border-radius: 8px;
         }
+        .ip-box.variance-high { border-color: #ff6b6b; background: #fff5f5; }
         .ip-box h3 { margin-top: 0; color: #155724; }
         .port-links { margin: 0.5rem 0; }
         .port-links a { 
@@ -25,7 +26,7 @@
             font-family: monospace;
         }
         .port-links a:hover { background: #218838; }
-        .variance-high { background: #ff6b6b !important; }
+        .port-links a.variance-high { background: #ff6b6b !important; }
         #status { margin-top: 0.5rem; font-style: italic; }
         #progress { margin-top: 0.5rem; font-family: monospace; }
         select { margin: 0.2rem; }
@@ -119,7 +120,7 @@
             const p80Median = getP80Median();
             const ipPortMap = {};
             
-            // Aggregate ALL responses per IP - show everything tried
+            // Aggregate ALL responses per IP - including port 80 baseline and dummy ports
             allResponses.forEach((portData, port) => {
                 portData.forEach(({ip, time}) => {
                     if (!ipPortMap[ip]) ipPortMap[ip] = [];
@@ -129,7 +130,7 @@
             
             resultsContainer.innerHTML = "";
             
-            // Only show IPs that have at least one fast port
+            // Only show IPs that have at least one fast port (including port 80)
             Object.entries(ipPortMap)
                 .filter(([ip, ports]) => ports.some(p => p.time <= threshold))
                 .sort(([ip1, ports1], [ip2, ports2]) => {
@@ -174,15 +175,15 @@
                     updateProgress(p80Completed, 254);
                     
                     if (p80Completed === 254) {
-                        allResponses.set(80, p80Baseline);
+                        allResponses.set(80, p80Baseline); // Include port 80 in results
                         const p80Median = getP80Median();
                         const outlierIps = p80Baseline
-                            .filter(t => t.time <= p80Median / 4) // 4x faster than median
+                            .filter(t => t.time <= p80Median / 4)
                             .sort((a,b) => a.time - b.time)
                             .slice(0, 20)
                             .map(t => t.ip);
                         
-                        setStatus(`Phase 2: ${outlierIps.length} outliers (≤${Math.round(p80Median/4)}ms) → random ports`);
+                        setStatus(`Phase 2: ${outlierIps.length} outliers → dummy ports (77x,999,1337,etc)`);
                         proceedToPhase2(outlierIps, prefix);
                     }
                 });
@@ -190,16 +191,16 @@
         }
 
         function proceedToPhase2(outlierIps, prefix) {
-            const randomPorts = [777, 999, 1337, 1234, 666, 555, 2222];
-            let phase2Total = outlierIps.length * randomPorts.length;
+            const dummyPorts = [777, 999, 1337, 1234, 666, 555, 2222];
+            let phase2Total = outlierIps.length * dummyPorts.length;
             let phase2Completed = 0;
             
-            randomPorts.forEach(port => {
+            dummyPorts.forEach(port => {
                 outlierIps.forEach(ip => {
                     scanPort(ip, port, (time) => {
                         const portData = allResponses.get(port) || [];
                         portData.push({ip, time});
-                        allResponses.set(port, portData);
+                        allResponses.set(port, portData); // Include dummy ports in results
                         
                         phase2Completed++;
                         updateProgress(phase2Completed, phase2Total);
@@ -233,7 +234,7 @@
                         updateProgress(phase3Completed, phase3Total);
                         
                         if (phase3Completed === phase3Total) {
-                            setStatus("Smart scan complete!");
+                            setStatus("Smart scan complete! Red=4x faster than P80 median");
                             renderPortBoxes();
                         }
                     });
