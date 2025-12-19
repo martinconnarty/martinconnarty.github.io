@@ -77,6 +77,7 @@
 
         let allResponses = new Map(); // port -> [{ip, time}]
         let p80Baseline = [];
+        let scanComplete = false;
         let currentThreshold = 2000;
 
         function setStatus(msg) {
@@ -95,6 +96,7 @@
             resultsContainer.innerHTML = "";
             allResponses.clear();
             p80Baseline = [];
+            scanComplete = false;
         }
 
         function scanPort(ip, port, callback) {
@@ -116,6 +118,8 @@
         }
 
         function renderPortBoxes() {
+            if (!scanComplete) return; // Don't render until scan is complete
+            
             const threshold = getThreshold();
             const p80Median = getP80Median();
             const ipPortMap = {};
@@ -175,7 +179,7 @@
                     updateProgress(p80Completed, 254);
                     
                     if (p80Completed === 254) {
-                        allResponses.set(80, p80Baseline); // Include port 80 in results
+                        allResponses.set(80, p80Baseline.slice()); // Copy array
                         const p80Median = getP80Median();
                         const outlierIps = p80Baseline
                             .filter(t => t.time <= p80Median / 4)
@@ -183,7 +187,7 @@
                             .slice(0, 20)
                             .map(t => t.ip);
                         
-                        setStatus(`Phase 2: ${outlierIps.length} outliers → dummy ports (77x,999,1337,etc)`);
+                        setStatus(`Phase 2: ${outlierIps.length} outliers → dummy ports`);
                         proceedToPhase2(outlierIps, prefix);
                     }
                 });
@@ -200,7 +204,7 @@
                     scanPort(ip, port, (time) => {
                         const portData = allResponses.get(port) || [];
                         portData.push({ip, time});
-                        allResponses.set(port, portData); // Include dummy ports in results
+                        allResponses.set(port, portData);
                         
                         phase2Completed++;
                         updateProgress(phase2Completed, phase2Total);
@@ -235,6 +239,7 @@
                         
                         if (phase3Completed === phase3Total) {
                             setStatus("Smart scan complete! Red=4x faster than P80 median");
+                            scanComplete = true;
                             renderPortBoxes();
                         }
                     });
@@ -251,6 +256,7 @@
             
             const mode = modeSelect.value;
             clearResults();
+            scanComplete = false;
             currentThreshold = getThreshold();
             
             if (mode === 'smart') {
@@ -279,6 +285,7 @@
                             
                             if (completed === totalRequests) {
                                 setStatus("Manual scan complete!");
+                                scanComplete = true;
                                 renderPortBoxes();
                             }
                         });
