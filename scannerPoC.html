@@ -5,6 +5,18 @@
     <title>/24 Smart HTTPS Scanner</title>
     <style>
         body { font-family: sans-serif; margin: 1.5rem; }
+        table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+        th, td { border: 1px solid #ccc; padding: 0.5rem; text-align: left; }
+        th { background: #f0f0f0; cursor: pointer; user-select: none; }
+        th:hover { background: #e0e0e0; }
+        a { color: #0066cc; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        #status { margin-top: 0.5rem; font-style: italic; }
+        #progress { margin-top: 0.5rem; font-family: monospace; }
+        .fast-row { background: #d4edda; }
+        .outlier-row { background: #fff3cd; }
+        .sorted-asc::after { content: " ▲"; }
+        .sorted-desc::after { content: " ▼"; }
         .ip-box { 
             border: 2px solid #28a745; 
             margin: 1rem 0; 
@@ -25,13 +37,7 @@
             font-family: monospace;
         }
         .port-links a:hover { background: #218838; }
-        .http-link { background: #17a2b8 !important; }
-        .http-link:hover { background: #138496 !important; }
-        .variance-high { background: #dc3545 !important; }
-        .variance-high:hover { background: #c82333 !important; }
-        #status { margin-top: 0.5rem; font-style: italic; }
-        #progress { margin-top: 0.5rem; font-family: monospace; }
-        select, input { margin: 0.2rem; }
+        select { margin: 0.2rem; }
     </style>
 </head>
 <body>
@@ -81,7 +87,6 @@
         const resultsContainer = document.getElementById('results');
 
         let allResponses = new Map(); // port -> [{ip, time}]
-        let p80Baseline = []; // Port 80 reference for ALL IPs
         let currentThreshold = 2000;
 
         function setStatus(msg) {
@@ -99,12 +104,10 @@
         function clearResults() {
             resultsContainer.innerHTML = "";
             allResponses.clear();
-            p80Baseline = [];
         }
 
-        function scanPort(ip, port, callback, useHttp = false) {
-            const protocol = useHttp ? 'http' : 'https';
-            const url = `${protocol}://${ip}:${port}/?t=${Date.now()}`;
+        function scanPort(ip, port, callback) {
+            const url = `https://${ip}:${port}/?t=${Date.now()}`;
             const startTime = performance.now();
             
             fetch(url, {mode: 'no-cors'}).then(() => {
@@ -116,56 +119,37 @@
 
         function renderPortBoxes() {
             const threshold = getThreshold();
-            
-            // Calculate p80 median for filtering
-            const p80Times = p80Baseline.map(b => b.time).sort((a,b) => a - b);
-            const p80Median = p80Times[Math.floor(p80Times.length / 2)];
-            
-            // Only show IPs where p80 is 4x faster than median
-            const p80Outliers = p80Baseline.filter(b => b.time <= p80Median / 4);
-            
             const ipPortMap = {};
             
-            // For p80 outlier IPs, collect ALL port results
-            p80Outliers.forEach(outlier => {
-                const ip = outlier.ip;
-                ipPortMap[ip] = [{port: 80, time: outlier.time}];
-                
-                // Add all other port results for this IP
-                allResponses.forEach((portData, port) => {
-                    const result = portData.find(r => r.ip === ip);
-                    if (result) {
-                        ipPortMap[ip].push({port, time: result.time});
-                    }
-                });
+            // Aggregate all fast responses per IP
+            allResponses.forEach((portData, port) => {
+                portData.filter(r => r.time <= threshold)
+                       .sort((a,b) => a.time - b.time)
+                       .slice(0, 10) // Top 10 per port
+                       .forEach(({ip, time}) => {
+                           if (!ipPortMap[ip]) ipPortMap[ip] = [];
+                           ipPortMap[ip].push({port, time});
+                       });
             });
             
             resultsContainer.innerHTML = "";
             
+            // Render boxes for IPs with multiple fast ports
             Object.entries(ipPortMap)
+                .filter(([ip, ports]) => ports.length > 0)
                 .sort(([ip1, ports1], [ip2, ports2]) => ports2.length - ports1.length)
                 .forEach(([ip, ports]) => {
                     const box = document.createElement('div');
                     box.className = 'ip-box';
-                    const p80Time = ports.find(p => p.port === 80)?.time;
-                    
                     box.innerHTML = `
-                        <h3>${ip} (${ports.length} ports) [p80: ${p80Time?.toFixed(0)}ms]</h3>
+                        <h3>${ip} (${ports.length} ports ≤ ${threshold}ms)</h3>
                         <div class="port-links">
                             ${ports.sort((a,b) => a.time - b.time)
-                                   .map(p => {
-                                       const p80Ref = p80Baseline.find(b => b.ip === ip);
-                                       const variance = p80Ref ? (p80Ref.time / p.time).toFixed(1) + 'x' : '';
-                                       const isHighVariance = p80Ref && p80Ref.time / p.time >= 4;
-                                       const isPort80 = p.port === 80;
-                                       
-                                       return `<a href="${isPort80 ? 'http' : 'https'}://${ip}:${p.port}/" 
-                                                    target="_blank" rel="noreferrer"
-                                                    class="${isPort80 ? 'http-link' : ''} ${isHighVariance ? 'variance-high' : ''}"
-                                                    title="vs p80: ${variance}">
-                                            ${p.port} (${p.time.toFixed(0)}ms) ${variance}
-                                        </a>`;
-                                   }).join('')}
+                                   .map(p => 
+                                       `<a href="https://${ip}:${p.port}/" target="_blank" rel="noreferrer">
+                                            ${p.port} (${p.time.toFixed(0)}ms)
+                                        </a>`
+                                   ).join('')}
                         </div>
                     `;
                     resultsContainer.appendChild(box);
@@ -175,29 +159,61 @@
         async function smartScan(prefix) {
             setStatus("Phase 1: Port 80 baseline...");
             
-            // Phase 1: Port 80 across all IPs
+            // Phase 1: Port 80 outliers
+            const p80Times = [];
             let p80Completed = 0;
             
             for (let i = 1; i <= 254; i++) {
                 const host = prefix + "." + i;
                 scanPort(host, 80, (time) => {
-                    p80Baseline.push({ip: host, time});
+                    p80Times.push({ip: host, time});
                     p80Completed++;
                     updateProgress(p80Completed, 254);
                     
                     if (p80Completed === 254) {
-                        allResponses.set(80, p80Baseline.slice());
-                        setStatus("Phase 2: Scanning web ports...");
-                        proceedToPhase2(prefix);
+                        allResponses.set(80, p80Times);
+                        proceedToPhase2(p80Times, prefix);
                     }
-                }, true); // HTTP for port 80
+                });
             }
         }
 
-        function proceedToPhase2(prefix) {
-            const webPorts = [443, 8006, 8443, 8000, 8080, 3000];
-            let phase2Total = 254 * webPorts.length;
+        function proceedToPhase2(p80Times, prefix) {
+            const outlierIps = p80Times
+                .sort((a,b) => a.time - b.time)
+                .slice(0, 15) // Top 15 outliers
+                .map(t => t.ip);
+            
+            setStatus(`Phase 2: Testing outliers on random ports...`);
+            
+            const randomPorts = [777, 999, 1337, 1234, 666];
+            let phase2Total = outlierIps.length * randomPorts.length;
             let phase2Completed = 0;
+            
+            randomPorts.forEach(port => {
+                outlierIps.forEach(ip => {
+                    scanPort(ip, port, (time) => {
+                        const portData = allResponses.get(port) || [];
+                        portData.push({ip, time});
+                        allResponses.set(port, portData);
+                        
+                        phase2Completed++;
+                        updateProgress(phase2Completed, phase2Total);
+                        
+                        if (phase2Completed === phase2Total) {
+                            proceedToPhase3(prefix);
+                        }
+                    });
+                });
+            });
+        }
+
+        function proceedToPhase3(prefix) {
+            setStatus("Phase 3: Web ports scan...");
+            
+            const webPorts = [443, 8006, 8443, 8000, 8080, 3000];
+            let phase3Total = 254 * webPorts.length;
+            let phase3Completed = 0;
             
             webPorts.forEach(port => {
                 allResponses.set(port, []);
@@ -209,10 +225,10 @@
                         portData.push({ip: host, time});
                         allResponses.set(port, portData);
                         
-                        phase2Completed++;
-                        updateProgress(phase2Completed, phase2Total);
+                        phase3Completed++;
+                        updateProgress(phase3Completed, phase3Total);
                         
-                        if (phase2Completed === phase2Total) {
+                        if (phase3Completed === phase3Total) {
                             setStatus("Smart scan complete!");
                             renderPortBoxes();
                         }
@@ -235,7 +251,6 @@
             if (mode === 'smart') {
                 smartScan(prefix);
             } else {
-                // Manual mode unchanged
                 const ports = portsInput.value.split(',').map(p => parseInt(p.trim())).filter(p => !isNaN(p));
                 if (ports.length === 0) {
                     alert("Enter at least one port");
