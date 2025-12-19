@@ -29,6 +29,7 @@
         #status { margin-top: 0.5rem; font-style: italic; }
         #progress { margin-top: 0.5rem; font-family: monospace; }
         select { margin: 0.2rem; }
+        label { display: block; margin-bottom: 0.5rem; }
     </style>
 </head>
 <body>
@@ -38,12 +39,10 @@
         Netblock prefix (first three octets, /24):
         <input id="netPrefix" type="text" value="192.168.0" size="12">
     </label>
-    <br><br>
     <label>
         Time threshold (ms):
         <input id="threshold" type="number" value="2000" min="0" step="100">
     </label>
-    <br><br>
     <label>
         Mode:
         <select id="mode">
@@ -51,12 +50,10 @@
             <option value="smart">Smart scan</option>
         </select>
     </label>
-    <br><br>
     <label id="portsLabel" style="display: block;">
         Ports (comma separated): 
         <input id="ports" type="text" value="443,8006,8443,8000" size="25">
     </label>
-    <br><br>
     <button id="start">Start scan</button>
     <button id="clear">Clear</button>
 
@@ -122,7 +119,7 @@
             const p80Median = getP80Median();
             const ipPortMap = {};
             
-            // Aggregate ALL responses per IP
+            // Aggregate ALL responses per IP - show everything tried
             allResponses.forEach((portData, port) => {
                 portData.forEach(({ip, time}) => {
                     if (!ipPortMap[ip]) ipPortMap[ip] = [];
@@ -132,8 +129,9 @@
             
             resultsContainer.innerHTML = "";
             
+            // Only show IPs that have at least one fast port
             Object.entries(ipPortMap)
-                .filter(([ip, ports]) => ports.some(p => p.time <= threshold)) // Only IPs with at least 1 fast port
+                .filter(([ip, ports]) => ports.some(p => p.time <= threshold))
                 .sort(([ip1, ports1], [ip2, ports2]) => {
                     const score1 = ports1.filter(p => p.time <= threshold).length;
                     const score2 = ports2.filter(p => p.time <= threshold).length;
@@ -179,12 +177,12 @@
                         allResponses.set(80, p80Baseline);
                         const p80Median = getP80Median();
                         const outlierIps = p80Baseline
-                            .filter(t => t.time <= p80Median / 4)
+                            .filter(t => t.time <= p80Median / 4) // 4x faster than median
                             .sort((a,b) => a.time - b.time)
                             .slice(0, 20)
                             .map(t => t.ip);
                         
-                        setStatus(`Phase 2: ${outlierIps.length} outliers → random ports`);
+                        setStatus(`Phase 2: ${outlierIps.length} outliers (≤${Math.round(p80Median/4)}ms) → random ports`);
                         proceedToPhase2(outlierIps, prefix);
                     }
                 });
