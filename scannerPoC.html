@@ -114,7 +114,7 @@
 
         function createProbe(ip, port, callback) {
             const config = getConfig();
-            const protocol = port === 443 ? 'https' : 'http';
+            const protocol = port === 443 ? 'https' : 'https';
             const url = `${protocol}://${ip}:${port}${config.path}?t=${Date.now()}`;
             
             let probe;
