@@ -5,39 +5,38 @@
     <title>/24 Smart HTTPS Scanner</title>
     <style>
         body { font-family: sans-serif; margin: 1.5rem; }
-        table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
-        th, td { border: 1px solid #ccc; padding: 0.5rem; text-align: left; }
-        th { background: #f0f0f0; cursor: pointer; user-select: none; }
-        th:hover { background: #e0e0e0; }
-        a { color: #0066cc; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        #status { margin-top: 0.5rem; font-style: italic; }
-        #progress { margin-top: 0.5rem; font-family: monospace; }
-        .fast-row { background: #d4edda; }
-        .outlier-row { background: #fff3cd; }
-        .sorted-asc::after { content: " ▲"; }
-        .sorted-desc::after { content: " ▼"; }
-        .ip-box { 
-            border: 2px solid #28a745; 
+        .ip-section { 
+            border: 1px solid #ccc; 
             margin: 1rem 0; 
             padding: 1rem; 
-            background: #f8fff9;
-            border-radius: 8px;
-        }
-        .ip-box h3 { margin-top: 0; color: #155724; }
-        .port-links { margin: 0.5rem 0; }
-        .port-links a { 
-            display: inline-block; 
-            margin: 0.3rem 0.5rem 0.3rem 0; 
-            padding: 0.4rem 0.6rem;
-            background: #28a745; 
-            color: white; 
-            text-decoration: none;
+            background: #f9f9f9;
             border-radius: 4px;
-            font-family: monospace;
         }
-        .port-links a:hover { background: #218838; }
-        .variance-high { background: #ff6b6b !important; }
+        .ip-section h3 { margin-top: 0; color: #333; }
+        .port-row { 
+            display: flex; 
+            margin: 0.3rem 0; 
+            align-items: center;
+        }
+        .port-label { 
+            font-family: monospace; 
+            min-width: 80px; 
+            font-weight: bold;
+        }
+        .port-time { 
+            margin-left: 1rem; 
+            font-family: monospace; 
+            color: #666;
+        }
+        .web-link a { 
+            color: #0066cc; 
+            text-decoration: none; 
+            margin-left: 0.5rem;
+        }
+        .web-link a:hover { text-decoration: underline; }
+        .variance-high { color: #d32f2f; font-weight: bold; }
+        #status { margin-top: 0.5rem; font-style: italic; }
+        #progress { margin-top: 0.5rem; font-family: monospace; }
         select { margin: 0.2rem; }
     </style>
 </head>
@@ -91,6 +90,8 @@
         let p80Baseline = [];
         let currentThreshold = 2000;
 
+        const webPorts = [80, 443, 8006, 8443, 8000, 8080, 3000, 8081];
+
         function setStatus(msg) {
             statusEl.textContent = "Status: " + msg;
         }
@@ -110,7 +111,8 @@
         }
 
         function scanPort(ip, port, callback) {
-            const url = `https://${ip}:${port}/?t=${Date.now()}`;
+            const protocol = port === 80 ? 'http' : 'https';
+            const url = `${protocol}://${ip}:${port}/?t=${Date.now()}`;
             const startTime = performance.now();
             
             fetch(url, {mode: 'no-cors'}).then(() => {
@@ -126,46 +128,52 @@
             return sorted[Math.floor(sorted.length / 2)];
         }
 
-        function renderPortBoxes() {
+        function renderResults() {
             const threshold = getThreshold();
             const p80Median = getP80Median();
             const ipPortMap = {};
             
-            // Aggregate all fast responses per IP (≤ threshold)
+            // Aggregate ALL responses per IP (no filtering here)
             allResponses.forEach((portData, port) => {
-                portData.filter(r => r.time <= threshold)
-                       .sort((a,b) => a.time - b.time)
-                       .slice(0, 10)
-                       .forEach(({ip, time}) => {
-                           if (!ipPortMap[ip]) ipPortMap[ip] = [];
-                           ipPortMap[ip].push({port, time, variance: time / p80Median});
-                       });
+                portData.forEach(({ip, time}) => {
+                    if (!ipPortMap[ip]) ipPortMap[ip] = [];
+                    ipPortMap[ip].push({port, time, variance: p80Median ? time / p80Median : 1});
+                });
             });
             
             resultsContainer.innerHTML = "";
             
             Object.entries(ipPortMap)
-                .filter(([ip, ports]) => ports.length > 0)
-                .sort(([ip1, ports1], [ip2, ports2]) => ports2.length - ports1.length)
+                .sort(([ip1, ports1], [ip2, ports2]) => {
+                    const score1 = ports1.filter(p => p.time <= threshold).length;
+                    const score2 = ports2.filter(p => p.time <= threshold).length;
+                    return score2 - score1;
+                })
                 .forEach(([ip, ports]) => {
-                    const box = document.createElement('div');
-                    box.className = 'ip-box';
-                    const hasHighVariance = ports.some(p => p.variance < 0.25); // 4x faster than median
-                    if (hasHighVariance) box.classList.add('variance-high');
+                    const fastPorts = ports.filter(p => p.time <= threshold);
+                    if (fastPorts.length === 0) return; // Skip IPs with no fast ports
                     
-                    box.innerHTML = `
-                        <h3>${ip} (${ports.length} ports ≤ ${threshold}ms)</h3>
-                        <div class="port-links">
-                            ${ports.sort((a,b) => a.time - b.time)
-                                   .map(p => {
-                                       const varClass = p.variance < 0.25 ? 'variance-high' : '';
-                                       return `<a href="https://${ip}:${p.port}/" target="_blank" rel="noreferrer" class="${varClass}">
-                                            ${p.port} (${p.time.toFixed(0)}ms | ${p.variance.toFixed(1)}x)
-                                        </a>`;
-                                   }).join('')}
-                        </div>
-                    `;
-                    resultsContainer.appendChild(box);
+                    const section = document.createElement('div');
+                    section.className = 'ip-section';
+                    section.innerHTML = `<h3>${ip} (${fastPorts.length}/${ports.length} ports ≤ ${threshold}ms)</h3>`;
+                    
+                    ports.sort((a,b) => a.time - b.time).forEach(p => {
+                        const row = document.createElement('div');
+                        row.className = 'port-row';
+                        const isWebPort = webPorts.includes(p.port);
+                        const varianceClass = p.variance < 0.25 ? 'variance-high' : '';
+                        const protocol = p.port === 80 ? 'http' : 'https';
+                        
+                        row.innerHTML = `
+                            <span class="port-label">Port ${p.port}:</span>
+                            <span class="${varianceClass}">${p.time.toFixed(0)}ms ${p.variance.toFixed(1)}x</span>
+                            ${isWebPort ? `<span class="web-link"><a href="${protocol}://${ip}:${p.port}/" target="_blank" rel="noreferrer">${protocol}://${ip}:${p.port}</a></span>` : ''}
+                            <span class="port-time">${p.time > threshold ? '(> threshold)' : ''}</span>
+                        `;
+                        section.appendChild(row);
+                    });
+                    
+                    resultsContainer.appendChild(section);
                 });
         }
 
@@ -184,12 +192,12 @@
                         allResponses.set(80, p80Baseline);
                         const p80Median = getP80Median();
                         const outlierIps = p80Baseline
-                            .filter(t => t.time <= p80Median / 4) // 4x faster than median
+                            .filter(t => t.time <= p80Median / 4)
                             .sort((a,b) => a.time - b.time)
-                            .slice(0, 15)
+                            .slice(0, 20)
                             .map(t => t.ip);
                         
-                        setStatus(`Phase 2: ${outlierIps.length} outliers (≤${p80Median/4|0}ms) → random ports...`);
+                        setStatus(`Phase 2: ${outlierIps.length} outliers (≤${Math.round(p80Median/4)}ms) → random ports`);
                         proceedToPhase2(outlierIps, prefix);
                     }
                 });
@@ -197,7 +205,7 @@
         }
 
         function proceedToPhase2(outlierIps, prefix) {
-            const randomPorts = [777, 999, 1337, 1234, 666];
+            const randomPorts = [777, 999, 1337, 1234, 666, 555, 2222];
             let phase2Total = outlierIps.length * randomPorts.length;
             let phase2Completed = 0;
             
@@ -220,9 +228,9 @@
         }
 
         function proceedToPhase3(prefix) {
-            setStatus("Phase 3: Web ports (comparing to P80 baseline)...");
+            setStatus("Phase 3: Web ports scan...");
             
-            const webPorts = [443, 8006, 8443, 8000, 8080, 3000];
+            const webPorts = [443, 8006, 8443, 8000, 8080, 3000, 8081];
             let phase3Total = 254 * webPorts.length;
             let phase3Completed = 0;
             
@@ -240,8 +248,8 @@
                         updateProgress(phase3Completed, phase3Total);
                         
                         if (phase3Completed === phase3Total) {
-                            setStatus("Smart scan complete! Red=4x faster than P80 median");
-                            renderPortBoxes();
+                            setStatus("Smart scan complete!");
+                            renderResults();
                         }
                     });
                 }
@@ -285,7 +293,7 @@
                             
                             if (completed === totalRequests) {
                                 setStatus("Manual scan complete!");
-                                renderPortBoxes();
+                                renderResults();
                             }
                         });
                     }
@@ -296,7 +304,7 @@
         // Event listeners
         startBtn.addEventListener('click', scanSubnet);
         clearBtn.addEventListener('click', clearResults);
-        thresholdInput.addEventListener('input', renderPortBoxes);
+        thresholdInput.addEventListener('input', renderResults);
         modeSelect.addEventListener('change', function() {
             portsLabel.style.display = this.value === 'ports' ? 'block' : 'none';
         });
