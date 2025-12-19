@@ -15,13 +15,11 @@
         #progress { margin-top: 0.5rem; font-family: monospace; }
         .fast-row { background: #d4edda; }
         .outlier-row { background: #fff3cd; }
-        .multi-port { background: #d1ecf1; font-weight: bold; }
         .sorted-asc::after { content: " ▲"; }
         .sorted-desc::after { content: " ▼"; }
         .port-section { margin-top: 2rem; border-top: 2px solid #eee; padding-top: 1rem; }
         select { margin: 0.2rem; }
-        #multiPortTable { margin-top: 3rem; }
-        .hidden { display: none; }
+        #notableIpsTable { margin-top: 3rem; background: #e8f5e8; }
     </style>
 </head>
 <body>
@@ -57,14 +55,14 @@
     <p id="progress">Progress: 0/0</p>
 
     <div id="portTables"></div>
-    <div id="multiPortTable" style="display: none;">
-        <h2>IPs with multiple fast ports</h2>
-        <table id="multiPortSummary">
+    
+    <div id="notableIpsTable" style="display: none;">
+        <h2>IPs of note (Port 80 outliers) - All fast ports</h2>
+        <table id="notableIpsSummary">
             <thead>
                 <tr>
                     <th>IP</th>
-                    <th>Fast ports</th>
-                    <th>Links</th>
+                    <th>Fast ports (&lt;2s)</th>
                 </tr>
             </thead>
             <tbody></tbody>
@@ -82,13 +80,12 @@
         const statusEl = document.getElementById('status');
         const progressEl = document.getElementById('progress');
         const portTablesContainer = document.getElementById('portTables');
-        const multiPortTable = document.getElementById('multiPortTable');
-        const multiPortBody = document.querySelector('#multiPortSummary tbody');
+        const notableIpsTable = document.getElementById('notableIpsTable');
+        const notableIpsBody = document.querySelector('#notableIpsSummary tbody');
 
         let allResponses = new Map();
-        let mainSortCol = 0;
-        let mainSortDir = 'asc';
-        let currentThreshold = 5000;
+        let scanComplete = false;
+        let p80Outliers = [];
 
         function setStatus(msg) {
             statusEl.textContent = "Status: " + msg;
@@ -111,8 +108,10 @@
 
         function clearTables() {
             portTablesContainer.innerHTML = "";
-            multiPortTable.style.display = 'none';
+            notableIpsTable.style.display = 'none';
             allResponses.clear();
+            p80Outliers = [];
+            scanComplete = false;
         }
 
         function createPortTable(port, label = '') {
@@ -124,7 +123,7 @@
                     <thead>
                         <tr>
                             <th>IP</th>
-                            <th>HTTPS Link</th>
+                            <th>Link</th>
                             <th>Time (ms)</th>
                         </tr>
                     </thead>
@@ -140,6 +139,8 @@
         }
 
         function filterAndRenderPortTable(port) {
+            if (!scanComplete) return;
+            
             const tbody = document.querySelector(`#table-${port} tbody`);
             if (!tbody) return;
             
@@ -160,15 +161,13 @@
             sorted.forEach(({ip, time}, idx) => {
                 const row = tbody.insertRow();
                 if (idx < 10) row.className = 'fast-row';
-                if (portData.findIndex(r => r.ip === ip) < 5) row.classList.add('outlier-row');
+                if (p80Outliers.includes(ip) && port === 80) row.classList.add('outlier-row');
                 row.innerHTML = `
                     <td>${ip}</td>
                     <td><a href="${port === 80 ? 'http' : 'https'}://${ip}:${port}/" target="_blank" rel="noreferrer">${port === 80 ? 'http' : 'https'}://${ip}:${port}</a></td>
                     <td>${time.toFixed(0)}</td>
                 `;
             });
-
-            renderMultiPortSummary();
         }
 
         function sortPortTable(port, colIndex) {
@@ -178,43 +177,53 @@
             filterAndRenderPortTable(port);
         }
 
-        function renderMultiPortSummary() {
-            const fastIps = new Map();
+        function renderNotableIpsTable() {
+            if (p80Outliers.length === 0) {
+                notableIpsTable.style.display = 'none';
+                return;
+            }
             
-            allResponses.forEach((portData, port) => {
-                const fastResponses = portData.filter(r => r.time < 1000).slice(0, 10);
-                fastResponses.forEach(({ip}) => {
-                    if (!fastIps.has(ip)) fastIps.set(ip, new Set());
-                    fastIps.get(ip).add(port);
-                });
-            });
-
-            const multiPortIps = Array.from(fastIps.entries())
-                .filter(([ip, ports]) => ports.size >= 2)
-                .sort((a, b) => b[1].size - a[1].size);
-
-            multiPortBody.innerHTML = "";
-            multiPortIps.forEach(([ip, portsSet]) => {
-                const ports = Array.from(portsSet).sort((a,b) => a - b);
-                const row = multiPortBody.insertRow();
-                row.className = 'multi-port';
+            // Group by IP, collect all fast ports (<2s)
+            const ipPortMap = new Map();
+            
+            p80Outliers.forEach(ip => {
+                const fastPorts = [];
                 
-                const links = ports.map(port => 
-                    `<a href="${port === 80 ? 'http' : 'https'}://${ip}:${port}/" target="_blank" rel="noreferrer">${port === 80 ? 'http' : 'https'}://${ip}:${port}</a>`
-                ).join(' ');
-
+                allResponses.forEach((portData, port) => {
+                    const result = portData.find(r => r.ip === ip);
+                    if (result && result.time < 2000) {
+                        fastPorts.push(port);
+                    }
+                });
+                
+                if (fastPorts.length > 0) {
+                    ipPortMap.set(ip, fastPorts.sort((a,b) => a - b));
+                }
+            });
+            
+            const notableIps = Array.from(ipPortMap.entries())
+                .sort((a,b) => b[1].length - a[1].length);
+            
+            notableIpsBody.innerHTML = "";
+            notableIps.forEach(([ip, ports]) => {
+                const row = notableIpsBody.insertRow();
                 row.innerHTML = `
-                    <td>${ip}</td>
-                    <td>${ports.join(', ')}</td>
-                    <td>${links}</td>
+                    <td><strong>${ip}</strong></td>
+                    <td>
+                        ${ports.map(port => 
+                            `<a href="${port === 80 ? 'http' : 'https'}://${ip}:${port}/" target="_blank" rel="noreferrer">
+                                ${port === 80 ? 'http' : 'https'}://${ip}:${port}
+                            </a>`
+                        ).join(', ')}
+                    </td>
                 `;
             });
-
-            multiPortTable.style.display = multiPortIps.length > 0 ? 'block' : 'none';
+            
+            notableIpsTable.style.display = 'block';
         }
 
         function scanPort(ip, port, callback) {
-            const url = `https://${ip}:${port}/?t=${Date.now()}`;
+            const url = `${port === 80 ? 'http' : 'https'}://${ip}:${port}/?t=${Date.now()}`;
             const startTime = performance.now();
             
             fetch(url, {mode: 'no-cors'}).then(() => {
@@ -224,90 +233,59 @@
             });
         }
 
-        async function smartScan(prefix) {
-            setStatus("Phase 1: Port 80 baseline scan...");
+        function scanAllHosts(prefix, ports, onComplete) {
+            let completed = 0;
+            const total = 254 * ports.length;
             
-            const p80Times = [];
-            let p80Completed = 0;
-            
-            for (let i = 1; i <= 254; i++) {
-                const host = prefix + "." + i;
-                scanPort(host, 80, (time) => {
-                    p80Times.push({ip: host, time});
-                    p80Completed++;
-                    updateProgress(p80Completed, 254);
-                    
-                    if (p80Completed === 254) {
-                        allResponses.set(80, p80Times);
-                        createPortTable(80);
-                        filterAndRenderPortTable(80);
-                        setTimeout(() => proceedToPhase2(p80Times, prefix), 500);
-                    }
-                });
-            }
-        }
-
-        function proceedToPhase2(p80Times, prefix) {
-            const outlierIps = p80Times
-                .sort((a,b) => a.time - b.time)
-                .slice(0, 10)
-                .map(t => t.ip);
-            
-            setStatus(`Phase 2: Scanning outliers on random ports 777,999,1337...`);
-            
-            const randomPorts = [777, 999, 1337];
-            const totalPhase2 = outlierIps.length * randomPorts.length;
-            let phase2Completed = 0;
-            
-            randomPorts.forEach(port => {
+            ports.forEach(port => {
                 allResponses.set(port, []);
-                createPortTable(port, `Random port ${port}`);
-                
-                outlierIps.forEach(ip => {
-                    scanPort(ip, port, (time) => {
-                        const portData = allResponses.get(port);
-                        portData.push({ip, time});
-                        allResponses.set(port, portData);
-                        filterAndRenderPortTable(port);
-                        
-                        phase2Completed++;
-                        updateProgress(phase2Completed, totalPhase2);
-                        
-                        if (phase2Completed === totalPhase2) {
-                            setTimeout(() => proceedToPhase3(prefix), 500);
-                        }
-                    });
-                });
-            });
-        }
-
-        function proceedToPhase3(prefix) {
-            setStatus("Phase 3: Web ports comparison scan...");
-            
-            const webPorts = [80, 443, 8006, 8443, 8000, 8080];
-            const totalPhase3 = 254 * webPorts.length;
-            let phase3Completed = 0;
-            
-            webPorts.forEach(port => {
-                allResponses.set(port, []);
-                createPortTable(port);
-                
                 for (let i = 1; i <= 254; i++) {
                     const host = prefix + "." + i;
                     scanPort(host, port, (time) => {
                         const portData = allResponses.get(port);
                         portData.push({ip: host, time});
                         allResponses.set(port, portData);
-                        filterAndRenderPortTable(port);
                         
-                        phase3Completed++;
-                        updateProgress(phase3Completed, totalPhase3);
+                        completed++;
+                        updateProgress(completed, total);
                         
-                        if (phase3Completed === totalPhase3) {
-                            setStatus("Smart scan complete - green=fastest, yellow=outliers, cyan=multi-port");
+                        if (completed === total) {
+                            onComplete();
                         }
                     });
                 }
+            });
+        }
+
+        async function smartScan(prefix) {
+            setStatus("Phase 1: Port 80 baseline...");
+            scanAllHosts(prefix, [80], () => {
+                // Calculate port 80 outliers
+                const p80Data = allResponses.get(80);
+                const times = p80Data.map(r => r.time).sort((a,b) => a - b);
+                const mean = times.reduce((a,b) => a+b, 0) / times.length;
+                const stdDev = Math.sqrt(times.reduce((a,b) => a + Math.pow(b - mean, 2), 0) / times.length);
+                
+                p80Outliers = p80Data
+                    .filter(r => r.time <= mean - 2*stdDev || times.indexOf(r.time) < times.length * 0.1)
+                    .sort((a,b) => a.time - b.time)
+                    .slice(0, 15)
+                    .map(r => r.ip);
+                
+                setStatus("Phase 2: Random ports...");
+                scanAllHosts(prefix, [777, 999, 1337], () => {
+                    setStatus("Phase 3: Web ports...");
+                    scanAllHosts(prefix, [443, 8006, 8443, 8000, 8080], () => {
+                        scanComplete = true;
+                        setStatus("Scan complete - displaying results");
+                        
+                        Array.from(allResponses.keys()).forEach(port => {
+                            createPortTable(port);
+                            filterAndRenderPortTable(port);
+                        });
+                        renderNotableIpsTable();
+                    });
+                });
             });
         }
 
@@ -320,7 +298,6 @@
             
             const mode = modeSelect.value;
             clearTables();
-            currentThreshold = getThreshold();
             
             if (mode === 'smart') {
                 smartScan(prefix);
@@ -331,31 +308,16 @@
                     return;
                 }
                 
-                ports.forEach(port => {
-                    allResponses.set(port, []);
-                    createPortTable(port);
-                });
-                
-                setStatus(`Manual scan ${prefix}.1–254 on ports ${ports.join(', ')}...`);
-                const totalRequests = 254 * ports.length;
-                let completed = 0;
-                
-                ports.forEach(port => {
-                    for (let i = 1; i <= 254; i++) {
-                        const host = prefix + "." + i;
-                        scanPort(host, port, (time) => {
-                            const portData = allResponses.get(port);
-                            portData.push({ip: host, time});
-                            allResponses.set(port, portData);
-                            filterAndRenderPortTable(port);
-                            completed++;
-                            updateProgress(completed, totalRequests);
-                            
-                            if (completed === totalRequests) {
-                                setStatus("Manual scan complete");
-                            }
-                        });
-                    }
+                setStatus(`Manual scan...`);
+                scanAllHosts(prefix, ports, () => {
+                    scanComplete = true;
+                    setStatus("Manual scan complete");
+                    
+                    ports.forEach(port => {
+                        createPortTable(port);
+                        filterAndRenderPortTable(port);
+                    });
+                    renderNotableIpsTable();
                 });
             }
         }
@@ -364,17 +326,17 @@
         startBtn.addEventListener('click', scanSubnet);
         clearBtn.addEventListener('click', clearTables);
         thresholdInput.addEventListener('input', () => {
-            Array.from(allResponses.keys()).forEach(port => {
-                if (document.querySelector(`#table-${port}`)) {
+            if (scanComplete) {
+                Array.from(allResponses.keys()).forEach(port => {
                     filterAndRenderPortTable(port);
-                }
-            });
+                });
+                renderNotableIpsTable();
+            }
         });
         modeSelect.addEventListener('change', function() {
             portsLabel.style.display = this.value === 'ports' ? 'block' : 'none';
         });
 
-        // Initial setup
         modeSelect.dispatchEvent(new Event('change'));
     </script>
 </body>
