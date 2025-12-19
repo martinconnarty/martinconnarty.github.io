@@ -75,10 +75,9 @@
         const progressEl = document.getElementById('progress');
         const resultsContainer = document.getElementById('results');
 
-        let allResponses = new Map(); // port -> [{ip, time}]
+        let allResponses = new Map();
         let p80Baseline = [];
         let scanComplete = false;
-        let currentThreshold = 2000;
 
         function setStatus(msg) {
             statusEl.textContent = "Status: " + msg;
@@ -118,13 +117,12 @@
         }
 
         function renderPortBoxes() {
-            if (!scanComplete) return; // Don't render until scan is complete
+            if (!scanComplete) return;
             
             const threshold = getThreshold();
             const p80Median = getP80Median();
             const ipPortMap = {};
             
-            // Aggregate ALL responses per IP - including port 80 baseline and dummy ports
             allResponses.forEach((portData, port) => {
                 portData.forEach(({ip, time}) => {
                     if (!ipPortMap[ip]) ipPortMap[ip] = [];
@@ -134,7 +132,6 @@
             
             resultsContainer.innerHTML = "";
             
-            // Only show IPs that have at least one fast port (including port 80)
             Object.entries(ipPortMap)
                 .filter(([ip, ports]) => ports.some(p => p.time <= threshold))
                 .sort(([ip1, ports1], [ip2, ports2]) => {
@@ -167,10 +164,12 @@
                 });
         }
 
-        async function smartScan(prefix) {
-            setStatus("Phase 1: Port 80 baseline...");
+        function smartScan(prefix) {
+            setStatus("Phase 1: Port 80 baseline scan (254 IPs)...");
             
+            p80Baseline = [];
             let p80Completed = 0;
+            
             for (let i = 1; i <= 254; i++) {
                 const host = prefix + "." + i;
                 scanPort(host, 80, (time) => {
@@ -179,7 +178,7 @@
                     updateProgress(p80Completed, 254);
                     
                     if (p80Completed === 254) {
-                        allResponses.set(80, p80Baseline.slice()); // Copy array
+                        allResponses.set(80, p80Baseline.slice());
                         const p80Median = getP80Median();
                         const outlierIps = p80Baseline
                             .filter(t => t.time <= p80Median / 4)
@@ -187,7 +186,7 @@
                             .slice(0, 20)
                             .map(t => t.ip);
                         
-                        setStatus(`Phase 2: ${outlierIps.length} outliers → dummy ports`);
+                        setStatus(`Phase 1 complete. Phase 2: ${outlierIps.length} outliers → dummy ports`);
                         proceedToPhase2(outlierIps, prefix);
                     }
                 });
@@ -204,12 +203,13 @@
                     scanPort(ip, port, (time) => {
                         const portData = allResponses.get(port) || [];
                         portData.push({ip, time});
-                        allResponses.set(port, portData);
+                        allResponses.set(port, portData.slice());
                         
                         phase2Completed++;
                         updateProgress(phase2Completed, phase2Total);
                         
                         if (phase2Completed === phase2Total) {
+                            setStatus("Phase 2 complete. Phase 3: Web ports scan...");
                             proceedToPhase3(prefix);
                         }
                     });
@@ -218,8 +218,6 @@
         }
 
         function proceedToPhase3(prefix) {
-            setStatus("Phase 3: Web ports scan...");
-            
             const webPorts = [443, 8006, 8443, 8000, 8080, 3000, 8081];
             let phase3Total = 254 * webPorts.length;
             let phase3Completed = 0;
@@ -232,7 +230,6 @@
                     scanPort(host, port, (time) => {
                         const portData = allResponses.get(port);
                         portData.push({ip: host, time});
-                        allResponses.set(port, portData);
                         
                         phase3Completed++;
                         updateProgress(phase3Completed, phase3Total);
@@ -257,7 +254,6 @@
             const mode = modeSelect.value;
             clearResults();
             scanComplete = false;
-            currentThreshold = getThreshold();
             
             if (mode === 'smart') {
                 smartScan(prefix);
@@ -279,7 +275,6 @@
                         scanPort(host, port, (time) => {
                             const portData = allResponses.get(port);
                             portData.push({ip: host, time});
-                            allResponses.set(port, portData);
                             completed++;
                             updateProgress(completed, totalRequests);
                             
