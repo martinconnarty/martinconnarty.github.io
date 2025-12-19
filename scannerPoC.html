@@ -5,18 +5,6 @@
     <title>/24 Smart HTTPS Scanner</title>
     <style>
         body { font-family: sans-serif; margin: 1.5rem; }
-        table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
-        th, td { border: 1px solid #ccc; padding: 0.5rem; text-align: left; }
-        th { background: #f0f0f0; cursor: pointer; user-select: none; }
-        th:hover { background: #e0e0e0; }
-        a { color: #0066cc; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        #status { margin-top: 0.5rem; font-style: italic; }
-        #progress { margin-top: 0.5rem; font-family: monospace; }
-        .fast-row { background: #d4edda; }
-        .outlier-row { background: #fff3cd; }
-        .sorted-asc::after { content: " ▲"; }
-        .sorted-desc::after { content: " ▼"; }
         .ip-box { 
             border: 2px solid #28a745; 
             margin: 1rem 0; 
@@ -41,7 +29,9 @@
         .http-link:hover { background: #138496 !important; }
         .variance-high { background: #dc3545 !important; }
         .variance-high:hover { background: #c82333 !important; }
-        select { margin: 0.2rem; }
+        #status { margin-top: 0.5rem; font-style: italic; }
+        #progress { margin-top: 0.5rem; font-family: monospace; }
+        select, input { margin: 0.2rem; }
     </style>
 </head>
 <body>
@@ -91,7 +81,7 @@
         const resultsContainer = document.getElementById('results');
 
         let allResponses = new Map(); // port -> [{ip, time}]
-        let p80Baseline = []; // For smart scan reference
+        let p80Baseline = []; // Port 80 reference for ALL IPs
         let currentThreshold = 2000;
 
         function setStatus(msg) {
@@ -126,37 +116,45 @@
 
         function renderPortBoxes() {
             const threshold = getThreshold();
+            
+            // Calculate p80 median for filtering
+            const p80Times = p80Baseline.map(b => b.time).sort((a,b) => a - b);
+            const p80Median = p80Times[Math.floor(p80Times.length / 2)];
+            
+            // Only show IPs where p80 is 4x faster than median
+            const p80Outliers = p80Baseline.filter(b => b.time <= p80Median / 4);
+            
             const ipPortMap = {};
             
-            // Aggregate all responses per IP (4x faster than p80 baseline for smart scan)
-            allResponses.forEach((portData, port) => {
-                const isPort80 = port === 80;
-                portData.filter(r => {
-                    if (isPort80) return r.time <= threshold;
-                    // For other ports, compare to p80 baseline for this IP
-                    const p80Time = p80Baseline.find(b => b.ip === r.ip);
-                    return p80Time ? r.time <= p80Time.time / 4 : r.time <= threshold;
-                }).forEach(({ip, time}) => {
-                    if (!ipPortMap[ip]) ipPortMap[ip] = [];
-                    ipPortMap[ip].push({port, time});
+            // For p80 outlier IPs, collect ALL port results
+            p80Outliers.forEach(outlier => {
+                const ip = outlier.ip;
+                ipPortMap[ip] = [{port: 80, time: outlier.time}];
+                
+                // Add all other port results for this IP
+                allResponses.forEach((portData, port) => {
+                    const result = portData.find(r => r.ip === ip);
+                    if (result) {
+                        ipPortMap[ip].push({port, time: result.time});
+                    }
                 });
             });
             
             resultsContainer.innerHTML = "";
             
             Object.entries(ipPortMap)
-                .filter(([ip, ports]) => ports.length > 0)
                 .sort(([ip1, ports1], [ip2, ports2]) => ports2.length - ports1.length)
                 .forEach(([ip, ports]) => {
-                    const p80Time = p80Baseline.find(b => b.ip === ip);
                     const box = document.createElement('div');
                     box.className = 'ip-box';
+                    const p80Time = ports.find(p => p.port === 80)?.time;
+                    
                     box.innerHTML = `
-                        <h3>${ip} (${ports.length} fast ports) ${p80Time ? `(p80: ${p80Time.time.toFixed(0)}ms)` : ''}</h3>
+                        <h3>${ip} (${ports.length} ports) [p80: ${p80Time?.toFixed(0)}ms]</h3>
                         <div class="port-links">
                             ${ports.sort((a,b) => a.time - b.time)
                                    .map(p => {
-                                       const p80Ref = p80Baseline.find(b => b.ip === p.ip);
+                                       const p80Ref = p80Baseline.find(b => b.ip === ip);
                                        const variance = p80Ref ? (p80Ref.time / p.time).toFixed(1) + 'x' : '';
                                        const isHighVariance = p80Ref && p80Ref.time / p.time >= 4;
                                        const isPort80 = p.port === 80;
@@ -164,7 +162,7 @@
                                        return `<a href="${isPort80 ? 'http' : 'https'}://${ip}:${p.port}/" 
                                                     target="_blank" rel="noreferrer"
                                                     class="${isPort80 ? 'http-link' : ''} ${isHighVariance ? 'variance-high' : ''}"
-                                                    title="Variance: ${variance}">
+                                                    title="vs p80: ${variance}">
                                             ${p.port} (${p.time.toFixed(0)}ms) ${variance}
                                         </a>`;
                                    }).join('')}
@@ -175,7 +173,7 @@
         }
 
         async function smartScan(prefix) {
-            setStatus("Phase 1: Port 80 baseline (4x filter reference)...");
+            setStatus("Phase 1: Port 80 baseline...");
             
             // Phase 1: Port 80 across all IPs
             let p80Completed = 0;
@@ -189,7 +187,7 @@
                     
                     if (p80Completed === 254) {
                         allResponses.set(80, p80Baseline.slice());
-                        setStatus("Phase 2: Web ports (comparing to p80 baseline)...");
+                        setStatus("Phase 2: Scanning web ports...");
                         proceedToPhase2(prefix);
                     }
                 }, true); // HTTP for port 80
@@ -237,6 +235,7 @@
             if (mode === 'smart') {
                 smartScan(prefix);
             } else {
+                // Manual mode unchanged
                 const ports = portsInput.value.split(',').map(p => parseInt(p.trim())).filter(p => !isNaN(p));
                 if (ports.length === 0) {
                     alert("Enter at least one port");
