@@ -2,10 +2,9 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>/24 Multi-Method Network Scanner</title>
+    <title>/24 HTTPS XHR Scanner</title>
     <style>
         body { font-family: sans-serif; margin: 1.5rem; }
-        fieldset { margin-bottom: 1rem; }
         table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
         th, td { border: 1px solid #ccc; padding: 0.5rem; text-align: left; }
         th { background: #f0f0f0; cursor: pointer; user-select: none; }
@@ -18,43 +17,28 @@
         .sorted-asc::after { content: " ▲"; }
         .sorted-desc::after { content: " ▼"; }
         .port-section { margin-top: 2rem; border-top: 2px solid #eee; padding-top: 1rem; }
-        select, input { margin: 0.2rem; }
     </style>
 </head>
 <body>
-    <h1>/24 Multi-Method Network Scanner</h1>
+    <h1>/24 HTTPS XHR Network Scanner</h1>
 
-    <fieldset>
-        <legend>Scan options</legend>
-        <label>Netblock: <input id="netPrefix" type="text" value="192.168.0" size="12"></label>
-        <br><br>
-        <label>Threshold (ms): <input id="threshold" type="number" value="5000" min="0" step="100"></label>
-        <br><br>
-        <label>Ports: <input id="ports" type="text" value="80,443,8006" size="20"></label>
-        <br><br>
-        <label>Method: 
-            <select id="method">
-                <option value="img">Image (Sec-Fetch-Dest: image)</option>
-                <option value="script">Script (Sec-Fetch-Dest: script)</option>
-                <option value="css">CSS (Sec-Fetch-Dest: style)</option>
-                <option value="fetch">Fetch (XHR-like)</option>
-                <option value="audio">Audio (Sec-Fetch-Dest: audio)</option>
-            </select>
-        </label>
-        <br><br>
-        <label>Path: 
-            <select id="path">
-                <option value="/">Root (/)</option>
-                <option value="/favicon.ico">Favicon</option>
-                <option value="/robots.txt">Robots.txt</option>
-                <option value="/login">Login page</option>
-                <option value="/index.html">Index.html</option>
-            </select>
-        </label>
-        <br><br>
-        <button id="start">Start scan</button>
-        <button id="clear">Clear</button>
-    </fieldset>
+    <label>
+        Netblock prefix (first three octets, /24):
+        <input id="netPrefix" type="text" value="192.168.0" size="12">
+    </label>
+    <br><br>
+    <label>
+        Time threshold (ms) - hide slower:
+        <input id="threshold" type="number" value="5000" min="0" step="100">
+    </label>
+    <br><br>
+    <label>
+        Ports (comma separated): 
+        <input id="ports" type="text" value="443,8006,8443,8000" size="25">
+    </label>
+    <br><br>
+    <button id="start">Start scan</button>
+    <button id="clear">Clear</button>
 
     <p id="status">Status: Idle.</p>
     <p id="progress">Progress: 0/0</p>
@@ -64,47 +48,31 @@
     <script>
         const startBtn = document.getElementById('start');
         const clearBtn = document.getElementById('clear');
-        const inputs = {
-            netPrefix: document.getElementById('netPrefix'),
-            threshold: document.getElementById('threshold'),
-            ports: document.getElementById('ports'),
-            method: document.getElementById('method'),
-            path: document.getElementById('path')
-        };
+        const netPrefixInput = document.getElementById('netPrefix');
+        const thresholdInput = document.getElementById('threshold');
+        const portsInput = document.getElementById('ports');
         const statusEl = document.getElementById('status');
         const progressEl = document.getElementById('progress');
         const portTablesContainer = document.getElementById('portTables');
 
-        let allResponses = new Map();
-        let currentThreshold = 5000;
+        let allResponses = new Map(); // port -> [{ip, time}]
+        let mainSortCol = 0;
+        let mainSortDir = 'asc';
 
-        function loadFromURL() {
-            const urlParams = new URLSearchParams(window.location.search);
-            Object.keys(inputs).forEach(key => {
-                const val = urlParams.get(key);
-                if (val !== null) inputs[key].value = decodeURIComponent(val);
-            });
+        function setStatus(msg) {
+            statusEl.textContent = "Status: " + msg;
         }
 
-        function updateURL() {
-            const params = new URLSearchParams();
-            Object.keys(inputs).forEach(key => params.set(key, encodeURIComponent(inputs[key].value)));
-            window.history.replaceState({}, '', window.location.pathname + '?' + params.toString());
+        function updateProgress(completed, total) {
+            progressEl.textContent = `Progress: ${completed}/${total}`;
         }
 
-        function setStatus(msg) { statusEl.textContent = "Status: " + msg; }
-        function updateProgress(completed, total) { 
-            progressEl.textContent = `Progress: ${completed}/${total}`; 
+        function getPorts() {
+            return portsInput.value.split(',').map(p => parseInt(p.trim())).filter(p => !isNaN(p));
         }
 
-        function getConfig() {
-            return {
-                prefix: inputs.netPrefix.value.trim(),
-                threshold: parseInt(inputs.threshold.value) || 5000,
-                ports: inputs.ports.value.split(',').map(p => parseInt(p.trim())).filter(p => !isNaN(p)),
-                method: inputs.method.value,
-                path: inputs.path.value
-            };
+        function getThreshold() {
+            return parseInt(thresholdInput.value) || 5000;
         }
 
         function clearTables() {
@@ -112,58 +80,16 @@
             allResponses.clear();
         }
 
-        function createProbe(ip, port, callback) {
-            const config = getConfig();
-            const protocol = port === 443 ? 'https' : 'https';
-            const url = `${protocol}://${ip}:${port}${config.path}?t=${Date.now()}`;
-            
-            let probe;
-            const startTime = performance.now();
-
-            switch(config.method) {
-                case 'img':
-                    probe = new Image();
-                    probe.onload = probe.onerror = () => callback(performance.now() - startTime);
-                    probe.src = url;
-                    break;
-                case 'script':
-                    probe = document.createElement('script');
-                    probe.onload = probe.onerror = () => callback(performance.now() - startTime);
-                    probe.src = url;
-                    document.body.appendChild(probe);
-                    setTimeout(() => document.body.removeChild(probe), 100);
-                    break;
-                case 'css':
-                    probe = document.createElement('link');
-                    probe.rel = 'stylesheet';
-                    probe.onload = probe.onerror = () => callback(performance.now() - startTime);
-                    probe.href = url;
-                    document.head.appendChild(probe);
-                    setTimeout(() => document.head.removeChild(probe), 100);
-                    break;
-                case 'audio':
-                    probe = new Audio(url);
-                    probe.onloadeddata = probe.onerror = () => callback(performance.now() - startTime);
-                    probe.load();
-                    break;
-                case 'fetch':
-                    fetch(url, {mode: 'no-cors'}).then(() => 
-                        callback(performance.now() - startTime)
-                    ).catch(() => callback(performance.now() - startTime));
-                    break;
-            }
-        }
-
         function createPortTable(port) {
             const section = document.createElement('div');
             section.className = 'port-section';
             section.innerHTML = `
-                <h2>${inputs.method.value.toUpperCase()} ${inputs.path.value} on Port ${port} (sortable)</h2>
+                <h2>Port ${port} (sortable)</h2>
                 <table id="table-${port}">
                     <thead>
                         <tr>
                             <th>IP</th>
-                            <th>Link</th>
+                            <th>HTTPS Link</th>
                             <th>Time (ms)</th>
                         </tr>
                     </thead>
@@ -172,6 +98,7 @@
             `;
             portTablesContainer.appendChild(section);
             
+            // Add sort handlers
             const table = section.querySelector('table');
             const headers = table.querySelectorAll('th');
             headers[0].addEventListener('click', () => sortPortTable(port, 0));
@@ -180,10 +107,10 @@
 
         function filterAndRenderPortTable(port) {
             const tbody = document.querySelector(`#table-${port} tbody`);
-            const config = getConfig();
+            const threshold = getThreshold();
             const portData = allResponses.get(port) || [];
             
-            const filtered = portData.filter(r => r.time <= config.threshold);
+            const filtered = portData.filter(r => r.time <= threshold);
             const sorted = [...filtered].sort((a, b) => {
                 const col = mainSortCol;
                 const aVal = col === 0 ? a.ip : a.time;
@@ -196,16 +123,17 @@
             tbody.innerHTML = "";
             sorted.forEach(({ip, time}) => {
                 const row = tbody.insertRow();
-                const protocol = port === 443 ? 'https' : 'http';
+                if (portData.findIndex(r => r.ip === ip) < 10) {
+                    row.className = 'fast-row';
+                }
                 row.innerHTML = `
                     <td>${ip}</td>
-                    <td><a href="${protocol}://${ip}:${port}${getConfig().path}" target="_blank" rel="noreferrer">${protocol}://${ip}:${port}</a></td>
+                    <td><a href="https://${ip}:${port}/" target="_blank" rel="noreferrer">https://${ip}:${port}</a></td>
                     <td>${time.toFixed(0)}</td>
                 `;
             });
         }
 
-        let mainSortCol = 0, mainSortDir = 'asc';
         function sortPortTable(port, colIndex) {
             const isAsc = mainSortCol === colIndex && mainSortDir === 'asc';
             mainSortDir = isAsc ? 'desc' : 'asc';
@@ -213,34 +141,47 @@
             filterAndRenderPortTable(port);
         }
 
+        function scanPort(ip, port, callback) {
+            const url = `https://${ip}:${port}/?t=${Date.now()}`;
+            const startTime = performance.now();
+            
+            fetch(url, {mode: 'no-cors'}).then(() => {
+                callback(performance.now() - startTime);
+            }).catch(() => {
+                callback(performance.now() - startTime);
+            });
+        }
+
         function scanSubnet() {
-            const config = getConfig();
-            if (!/^(\d{1,3}\.){2}\d{1,3}$/.test(config.prefix)) {
+            const prefix = netPrefixInput.value.trim();
+            if (!/^(\d{1,3}\.){2}\d{1,3}$/.test(prefix)) {
                 alert("Netblock prefix should look like 192.168.0");
                 return;
             }
-            if (config.ports.length === 0) {
-                alert("Enter at least one port");
+            
+            const ports = getPorts();
+            if (ports.length === 0) {
+                alert("Enter at least one port (comma separated)");
                 return;
             }
             
-            updateURL();
             clearTables();
             
-            config.ports.forEach(port => {
+            // Create tables for each port
+            ports.forEach(port => {
                 allResponses.set(port, []);
                 createPortTable(port);
             });
 
-            setStatus(`Scanning ${config.prefix}.1–254 using ${config.method} ${config.path}...`);
-            const totalRequests = 254 * config.ports.length;
+            setStatus(`Scanning ${prefix}.1–254 on ports ${ports.join(', ')} via HTTPS fetch...`);
+            const totalRequests = 254 * ports.length;
             let completed = 0;
 
-            config.ports.forEach(port => {
+            ports.forEach(port => {
                 for (let i = 1; i <= 254; i++) {
-                    const host = config.prefix + "." + i;
+                    const host = prefix + "." + i;
                     
-                    createProbe(host, port, (time) => {
+                    scanPort(host, port, (time) => {
                         const portData = allResponses.get(port) || [];
                         portData.push({ip: host, time});
                         allResponses.set(port, portData);
@@ -250,7 +191,7 @@
                         updateProgress(completed, totalRequests);
                         
                         if (completed === totalRequests) {
-                            setStatus("Scan complete");
+                            setStatus("Scan complete - click column headers to sort");
                         }
                     });
                 }
@@ -258,9 +199,30 @@
         }
 
         // Event listeners
-        Object.values(inputs).forEach(input => input.addEventListener('change', updateURL));
         startBtn.addEventListener('click', scanSubnet);
         clearBtn.addEventListener('click', clearTables);
+        thresholdInput.addEventListener('input', () => {
+            // Live threshold filtering
+            getPorts().forEach(port => {
+                if (document.querySelector(`#table-${port}`)) {
+                    filterAndRenderPortTable(port);
+                }
+            });
+        });
+        netPrefixInput.addEventListener('change', () => {});
+        portsInput.addEventListener('change', () => {});
+
+        // Load from URL params
+        function loadFromURL() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const prefix = urlParams.get('prefix');
+            const thresh = urlParams.get('threshold');
+            const ports = urlParams.get('ports');
+            
+            if (prefix) netPrefixInput.value = prefix;
+            if (thresh) thresholdInput.value = thresh;
+            if (ports) portsInput.value = ports;
+        }
         loadFromURL();
     </script>
 </body>
