@@ -5,36 +5,27 @@
     <title>/24 Smart HTTPS Scanner</title>
     <style>
         body { font-family: sans-serif; margin: 1.5rem; }
-        .ip-section { 
-            border: 1px solid #ccc; 
+        .ip-box { 
+            border: 2px solid #28a745; 
             margin: 1rem 0; 
             padding: 1rem; 
-            background: #f9f9f9;
+            background: #f8fff9;
+            border-radius: 8px;
+        }
+        .ip-box h3 { margin-top: 0; color: #155724; }
+        .port-links { margin: 0.5rem 0; }
+        .port-links a { 
+            display: inline-block; 
+            margin: 0.3rem 0.5rem 0.3rem 0; 
+            padding: 0.4rem 0.6rem;
+            background: #28a745; 
+            color: white; 
+            text-decoration: none;
             border-radius: 4px;
+            font-family: monospace;
         }
-        .ip-section h3 { margin-top: 0; color: #333; }
-        .port-row { 
-            display: flex; 
-            margin: 0.3rem 0; 
-            align-items: center;
-        }
-        .port-label { 
-            font-family: monospace; 
-            min-width: 80px; 
-            font-weight: bold;
-        }
-        .port-time { 
-            margin-left: 1rem; 
-            font-family: monospace; 
-            color: #666;
-        }
-        .web-link a { 
-            color: #0066cc; 
-            text-decoration: none; 
-            margin-left: 0.5rem;
-        }
-        .web-link a:hover { text-decoration: underline; }
-        .variance-high { color: #d32f2f; font-weight: bold; }
+        .port-links a:hover { background: #218838; }
+        .variance-high { background: #ff6b6b !important; }
         #status { margin-top: 0.5rem; font-style: italic; }
         #progress { margin-top: 0.5rem; font-family: monospace; }
         select { margin: 0.2rem; }
@@ -90,8 +81,6 @@
         let p80Baseline = [];
         let currentThreshold = 2000;
 
-        const webPorts = [80, 443, 8006, 8443, 8000, 8080, 3000, 8081];
-
         function setStatus(msg) {
             statusEl.textContent = "Status: " + msg;
         }
@@ -128,12 +117,12 @@
             return sorted[Math.floor(sorted.length / 2)];
         }
 
-        function renderResults() {
+        function renderPortBoxes() {
             const threshold = getThreshold();
             const p80Median = getP80Median();
             const ipPortMap = {};
             
-            // Aggregate ALL responses per IP (no filtering here)
+            // Aggregate ALL responses per IP
             allResponses.forEach((portData, port) => {
                 portData.forEach(({ip, time}) => {
                     if (!ipPortMap[ip]) ipPortMap[ip] = [];
@@ -144,36 +133,34 @@
             resultsContainer.innerHTML = "";
             
             Object.entries(ipPortMap)
+                .filter(([ip, ports]) => ports.some(p => p.time <= threshold)) // Only IPs with at least 1 fast port
                 .sort(([ip1, ports1], [ip2, ports2]) => {
                     const score1 = ports1.filter(p => p.time <= threshold).length;
                     const score2 = ports2.filter(p => p.time <= threshold).length;
                     return score2 - score1;
                 })
                 .forEach(([ip, ports]) => {
-                    const fastPorts = ports.filter(p => p.time <= threshold);
-                    if (fastPorts.length === 0) return; // Skip IPs with no fast ports
+                    const fastCount = ports.filter(p => p.time <= threshold).length;
+                    const box = document.createElement('div');
+                    box.className = 'ip-box';
                     
-                    const section = document.createElement('div');
-                    section.className = 'ip-section';
-                    section.innerHTML = `<h3>${ip} (${fastPorts.length}/${ports.length} ports ≤ ${threshold}ms)</h3>`;
+                    const hasHighVariance = ports.some(p => p.variance < 0.25);
+                    if (hasHighVariance) box.classList.add('variance-high');
                     
-                    ports.sort((a,b) => a.time - b.time).forEach(p => {
-                        const row = document.createElement('div');
-                        row.className = 'port-row';
-                        const isWebPort = webPorts.includes(p.port);
-                        const varianceClass = p.variance < 0.25 ? 'variance-high' : '';
-                        const protocol = p.port === 80 ? 'http' : 'https';
-                        
-                        row.innerHTML = `
-                            <span class="port-label">Port ${p.port}:</span>
-                            <span class="${varianceClass}">${p.time.toFixed(0)}ms ${p.variance.toFixed(1)}x</span>
-                            ${isWebPort ? `<span class="web-link"><a href="${protocol}://${ip}:${p.port}/" target="_blank" rel="noreferrer">${protocol}://${ip}:${p.port}</a></span>` : ''}
-                            <span class="port-time">${p.time > threshold ? '(> threshold)' : ''}</span>
-                        `;
-                        section.appendChild(row);
-                    });
-                    
-                    resultsContainer.appendChild(section);
+                    box.innerHTML = `
+                        <h3>${ip} (${fastCount}/${ports.length} ports ≤ ${threshold}ms)</h3>
+                        <div class="port-links">
+                            ${ports.sort((a,b) => a.time - b.time)
+                                   .map(p => {
+                                       const varClass = p.variance < 0.25 ? 'variance-high' : '';
+                                       const protocol = p.port === 80 ? 'http' : 'https';
+                                       return `<a href="${protocol}://${ip}:${p.port}/" target="_blank" rel="noreferrer" class="${varClass}">
+                                            ${p.port} (${p.time.toFixed(0)}ms | ${p.variance.toFixed(1)}x)
+                                        </a>`;
+                                   }).join('')}
+                        </div>
+                    `;
+                    resultsContainer.appendChild(box);
                 });
         }
 
@@ -197,7 +184,7 @@
                             .slice(0, 20)
                             .map(t => t.ip);
                         
-                        setStatus(`Phase 2: ${outlierIps.length} outliers (≤${Math.round(p80Median/4)}ms) → random ports`);
+                        setStatus(`Phase 2: ${outlierIps.length} outliers → random ports`);
                         proceedToPhase2(outlierIps, prefix);
                     }
                 });
@@ -249,7 +236,7 @@
                         
                         if (phase3Completed === phase3Total) {
                             setStatus("Smart scan complete!");
-                            renderResults();
+                            renderPortBoxes();
                         }
                     });
                 }
@@ -293,7 +280,7 @@
                             
                             if (completed === totalRequests) {
                                 setStatus("Manual scan complete!");
-                                renderResults();
+                                renderPortBoxes();
                             }
                         });
                     }
@@ -304,7 +291,7 @@
         // Event listeners
         startBtn.addEventListener('click', scanSubnet);
         clearBtn.addEventListener('click', clearResults);
-        thresholdInput.addEventListener('input', renderResults);
+        thresholdInput.addEventListener('input', renderPortBoxes);
         modeSelect.addEventListener('change', function() {
             portsLabel.style.display = this.value === 'ports' ? 'block' : 'none';
         });
