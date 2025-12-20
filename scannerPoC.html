@@ -2,356 +2,267 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>/24 Smart Web-ish Port Scanner (Browser PoC)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subnet Port Timing Scanner</title>
     <style>
-        body { font-family: sans-serif; margin: 1.5rem; max-width: 1200px; }
-        fieldset { margin-bottom: 1rem; }
-        label { display: block; margin: 0.2rem 0; }
-        input { margin-left: 0.4rem; }
-        button { margin-right: 0.5rem; }
-        #status { margin-top: 0.5rem; font-style: italic; }
-        #progress { margin-top: 0.25rem; font-family: monospace; }
-
-        .ip-card {
-            border: 1px solid #ccc;
-            padding: 0.6rem 0.8rem;
-            margin: 0.6rem 0;
-            border-radius: 4px;
-            background: #f8f9fa;
-        }
-        .ip-card h3 {
-            margin: 0 0 0.3rem 0;
-            font-size: 1rem;
-        }
-        .port-row {
-            font-family: monospace;
-            display: flex;
-            gap: 0.6rem;
-            margin: 0.1rem 0;
-        }
-        .port-row span.label {
-            width: 5rem;
-        }
-        .port-row span.time {
-            width: 5rem;
-        }
-        .port-row a {
-            color: #0066cc;
-            text-decoration: none;
-        }
-        .port-row a:hover {
-            text-decoration: underline;
-        }
-        .section-title {
-            margin-top: 1.5rem;
-            font-weight: bold;
-            border-bottom: 1px solid #ddd;
-            padding-bottom: 0.2rem;
-        }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; background: #f8f9fa; color: #333; }
+        .input-panel { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        input[type="text"] { width: 100%; padding: 12px; border: 2px solid #e0e6ed; border-radius: 8px; font-size: 16px; box-sizing: border-box; }
+        button { background: #007bff; color: white; padding: 12px 24px; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; margin-top: 10px; }
+        button:disabled { background: #6c757d; cursor: not-allowed; }
+        button:hover:not(:disabled) { background: #0056b3; }
+        .status { margin-top: 10px; padding: 10px; border-radius: 6px; }
+        .status.running { background: #fff3cd; border: 1px solid #ffeaa7; }
+        .status.error { background: #f8d7da; border: 1px solid #f5c6cb; }
+        .results { display: flex; flex-direction: column; gap: 20px; }
+        .host-box { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); border-left: 5px solid #007bff; }
+        .host-ip { font-size: 24px; font-weight: 600; margin-bottom: 10px; color: #1a1a1a; }
+        .timings { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 15px; }
+        .port-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: #f8f9fa; border-radius: 6px; font-family: monospace; }
+        .port-num { font-weight: 500; color: #495057; }
+        .time-ms { font-weight: 600; color: #28a745; }
+        .timeout { color: #dc3545; font-weight: 500; }
+        .pills { display: flex; flex-wrap: wrap; gap: 8px; }
+        .pill { padding: 8px 16px; border-radius: 20px; text-decoration: none; font-weight: 500; font-size: 14px; transition: all 0.2s; }
+        .pill.http { background: #007bff; color: white; }
+        .pill.https { background: linear-gradient(135deg, #28a745, #20c997); color: white; }
+        .pill.likely { background: linear-gradient(135deg, #ffc107, #fd7e14); color: white; box-shadow: 0 2px 8px rgba(255,193,7,0.4); }
+        .pill.down { background: #6c757d; color: white; opacity: 0.7; }
+        .legend { display: flex; gap: 20px; font-size: 14px; margin-top: 20px; }
+        .legend-item { display: flex; align-items: center; gap: 6px; }
+        .legend-color { width: 20px; height: 20px; border-radius: 50%; }
+        progress { width: 100%; height: 8px; border-radius: 4px; }
     </style>
 </head>
 <body>
-    <h1>/24 Smart Web-ish Port Scanner (Browser PoC)</h1>
+    <h1>Subnet Port Timing Scanner</h1>
+    
+    <div class="input-panel">
+        <label for="subnet">Subnet (CIDR):</label>
+        <input type="text" id="subnet" value="192.168.68.0/24" placeholder="e.g. 192.168.68.0/24">
+        <button id="scanBtn">Start Port Sweep</button>
+        <div id="status"></div>
+        <progress id="progress" value="0" max="100" style="display: none;"></progress>
+    </div>
 
-    <fieldset>
-        <legend>Scan configuration</legend>
+    <div id="results" class="results"></div>
 
-        <label>
-            Subnet (/24, CIDR or base IP):
-            <input id="subnet" type="text" value="192.168.1.0/24" size="18">
-        </label>
-
-        <label>
-            Port 80 fast-threshold (ms) for “interesting”:
-            <input id="fastThreshold80" type="number" value="500" min="10" step="10">
-        </label>
-
-        <label>
-            Random baseline ports (non-web, comma separated; browser-reachable):
-            <input id="randomPorts" type="text" value="777,999,1337" size="20">
-        </label>
-
-        <label>
-            Web-focused ports to compare (comma separated):
-            <input id="webPorts" type="text" value="80,443,8006,8080,8443" size="30">
-        </label>
-
-        <br>
-        <button id="start">Start scan</button>
-        <button id="clear">Clear</button>
-    </fieldset>
-
-    <p id="status">Status: Idle.</p>
-    <p id="progress">Progress: 0/0</p>
-
-    <div class="section-title">IPs of note (from port 80 sweep)</div>
-    <div id="results"></div>
+    <div class="legend">
+        <div class="legend-item"><span class="legend-color" style="background: #007bff;"></span>HTTP (80) - Confirmed</div>
+        <div class="legend-item"><span class="legend-color" style="background: linear-gradient(135deg, #28a745, #20c997);"></span>HTTPS - Likely open</div>
+        <div class="legend-item"><span class="legend-color" style="background: linear-gradient(135deg, #ffc107, #fd7e14);"></span>Timing anomaly (possible open)</div>
+        <div class="legend-item"><span class="legend-color" style="background: #6c757d;"></span>Timeout / Filtered</div>
+    </div>
 
     <script>
-        const subnetInput = document.getElementById('subnet');
-        const fastThreshold80Input = document.getElementById('fastThreshold80');
-        const randomPortsInput = document.getElementById('randomPorts');
-        const webPortsInput = document.getElementById('webPorts');
-        const startBtn = document.getElementById('start');
-        const clearBtn = document.getElementById('clear');
-        const statusEl = document.getElementById('status');
-        const progressEl = document.getElementById('progress');
-        const resultsEl = document.getElementById('results');
+        const DEFAULT_SUBNET = '192.168.68.0/24';
+        const PORT_80 = 80;
+        const WEB_PORTS = [443, 8443, 8000, 8006, 8080, 8008];
+        const BASELINE_PORTS = [21, 25, 53, 123]; // Non-web TCP ports for baseline
+        const TIMEOUT_MS = 3000;
+        const FAST_THRESHOLD = 1500; // ms - ports responding under this are "fast"
+        const CANDIDATE_THRESHOLD = 1.5; // Timing ratio vs baseline for "likely open"
 
-        function setStatus(msg) {
-            statusEl.textContent = 'Status: ' + msg;
-        }
+        let isScanning = false;
 
-        function setProgress(done, total) {
-            progressEl.textContent = `Progress: ${done}/${total}`;
-        }
-
-        function parseSubnet24(subnetStr) {
-            // Accept "192.168.1.0/24" or "192.168.1.0" or "192.168.1"
-            let base = subnetStr.trim();
-            if (base.includes('/')) {
-                const [ip, cidr] = base.split('/');
-                if (cidr !== '24') {
-                    alert('This PoC only supports /24 (256 addresses).');
-                    return null;
-                }
-                base = ip.trim();
+        // Parse CIDR to IP range
+        function parseSubnet(cidr) {
+            const [net, bits] = cidr.split('/');
+            const [a, b, c, d] = net.match(/\d+/g).map(Number);
+            const mask = ~((1 << (32 - bits)) - 1);
+            const start = (a << 24 | b << 16 | c << 8 | d) & mask;
+            const end = start | (~mask >>> 0);
+            const ips = [];
+            for (let i = start; i <= end; i++) {
+                const ip = [
+                    (i >>> 24) & 255,
+                    (i >>> 16) & 255,
+                    (i >>> 8) & 255,
+                    i & 255
+                ].join('.');
+                ips.push(ip);
             }
-            const parts = base.split('.');
-            if (parts.length === 4) {
-                // assume last octet is network address
-                return parts.slice(0, 3).join('.');
-            } else if (parts.length === 3) {
-                return base;
-            } else {
-                alert('Subnet must look like 192.168.1.0/24 or 192.168.1.0 or 192.168.1');
-                return null;
-            }
+            return ips;
         }
 
-        function parsePorts(str) {
-            return str.split(',')
-                .map(p => parseInt(p.trim(), 10))
-                .filter(p => !isNaN(p) && p > 0 && p < 65536);
-        }
-
-        function updateURLParams() {
-            const params = new URLSearchParams();
-            params.set('subnet', subnetInput.value);
-            params.set('fast80', fastThreshold80Input.value);
-            params.set('randomPorts', randomPortsInput.value);
-            params.set('webPorts', webPortsInput.value);
-            const newUrl = window.location.pathname + '?' + params.toString();
-            window.history.replaceState({}, '', newUrl);
-        }
-
-        function loadFromURLParams() {
-            const params = new URLSearchParams(window.location.search);
-            if (params.get('subnet')) subnetInput.value = params.get('subnet');
-            if (params.get('fast80')) fastThreshold80Input.value = params.get('fast80');
-            if (params.get('randomPorts')) randomPortsInput.value = params.get('randomPorts');
-            if (params.get('webPorts')) webPortsInput.value = params.get('webPorts');
-        }
-
-        subnetInput.addEventListener('change', updateURLParams);
-        fastThreshold80Input.addEventListener('change', updateURLParams);
-        randomPortsInput.addEventListener('change', updateURLParams);
-        webPortsInput.addEventListener('change', updateURLParams);
-
-        loadFromURLParams();
-
-        function scanPort(ip, port) {
-            // Port 80 must be HTTP, others HTTPS as per your design
-            const scheme = port === 80 ? 'http' : 'https';
-            const url = `${scheme}://${ip}:${port}/?t=${Date.now()}`;
+        // Test single port timing
+        async function testPort(ip, port) {
             const start = performance.now();
-            return fetch(url, { mode: 'no-cors' })
-                .then(() => performance.now() - start)
-                .catch(() => performance.now() - start);
-        }
-
-        async function phase1Sweep80(base) {
-            setStatus('Phase 1: Port 80 sweep across subnet...');
-            const fastThreshold = parseInt(fastThreshold80Input.value, 10) || 500;
-            const results = []; // { ip, time }
-            let done = 0;
-            const total = 254;
-
-            for (let i = 1; i <= 254; i++) {
-                const ip = `${base}.${i}`;
-                // eslint-disable-next-line no-await-in-loop
-                const t = await scanPort(ip, 80);
-                done++;
-                setProgress(done, total);
-                results.push({ ip, time: t });
-            }
-
-            // Sort by time asc
-            results.sort((a, b) => a.time - b.time);
-
-            // "Markedly quicker than normal" = faster than threshold or top N
-            const fastOnes = results.filter(r => r.time <= fastThreshold);
-            const topFast = results.slice(0, 20); // always keep a handful
-            const interestingSet = new Map();
-            fastOnes.forEach(r => interestingSet.set(r.ip, r.time));
-            topFast.forEach(r => {
-                if (!interestingSet.has(r.ip)) interestingSet.set(r.ip, r.time);
-            });
-
-            const interesting = Array.from(interestingSet.entries()).map(([ip, time]) => ({ ip, time }));
-            setStatus(`Phase 1 complete. Found ${interesting.length} interesting hosts on port 80.`);
-            return { all80: results, interesting };
-        }
-
-        async function phase2PerHostPorts(interesting, randomPorts, webPorts) {
-            // For each interesting IP: scan random baseline ports + web-focused ports
-            const allPerIp = new Map(); // ip -> { 80:time, port:time, ... }
-
-            const ipList = interesting.map(r => r.ip);
-            const portsToScan = Array.from(new Set([...randomPorts, ...webPorts])).sort((a,b) => a - b);
-            const total = ipList.length * portsToScan.length;
-            let done = 0;
-            setStatus('Phase 2: Per-host random + web port checks...');
-
-            for (const { ip, time: t80 } of interesting) {
-                const record = {};
-                record[80] = t80; // already measured
-                for (const port of portsToScan) {
-                    if (port === 80) continue; // we already have it
-                    // eslint-disable-next-line no-await-in-loop
-                    const t = await scanPort(ip, port);
-                    record[port] = t;
-                    done++;
-                    setProgress(done, total);
-                }
-                allPerIp.set(ip, record);
-            }
-
-            setStatus('Phase 2 complete. Rendering results.');
-            return allPerIp;
-        }
-
-        function renderResults(interesting80, perIpRecords, webPorts, randomPorts) {
-            resultsEl.innerHTML = '';
-            const webSet = new Set(webPorts);
-            const randomSet = new Set(randomPorts);
-
-            // IPs in order of port 80 speed
-            interesting80.sort((a, b) => a.time - b.time);
-
-            for (const { ip, time: t80 } of interesting80) {
-                const rec = perIpRecords.get(ip);
-                if (!rec) continue;
-
-                const card = document.createElement('div');
-                card.className = 'ip-card';
-
-                const title = document.createElement('h3');
-                title.textContent = `${ip} (port 80: ${t80.toFixed(0)} ms)`;
-                card.appendChild(title);
-
-                // Port 80 row
-                const p80Row = document.createElement('div');
-                p80Row.className = 'port-row';
-                p80Row.innerHTML = `
-                    <span class="label">80:</span>
-                    <span class="time">${t80.toFixed(0)} ms</span>
-                    <span><a href="http://${ip}:80/" target="_blank" rel="noreferrer">http://${ip}:80/</a></span>
-                `;
-                card.appendChild(p80Row);
-
-                // Web-ish ports (excluding 80) – show HTTPS links, plus timings
-                const webPortsSorted = webPorts
-                    .filter(p => p !== 80)
-                    .filter(p => rec[p] !== undefined)
-                    .sort((a, b) => a - b);
-
-                if (webPortsSorted.length) {
-                    const webLabel = document.createElement('div');
-                    webLabel.textContent = 'Web ports:';
-                    webLabel.style.marginTop = '0.3rem';
-                    card.appendChild(webLabel);
-
-                    webPortsSorted.forEach(port => {
-                        const t = rec[port];
-                        const row = document.createElement('div');
-                        row.className = 'port-row';
-                        row.innerHTML = `
-                            <span class="label">${port}:</span>
-                            <span class="time">${t.toFixed(0)} ms</span>
-                            <span><a href="https://${ip}:${port}/" target="_blank" rel="noreferrer">https://${ip}:${port}/</a></span>
-                        `;
-                        card.appendChild(row);
-                    });
-                }
-
-                // Other ports (baseline random, non-web) – timings only, no links
-                const otherPorts = Object.keys(rec)
-                    .map(Number)
-                    .filter(p => p !== 80 && !webSet.has(p));
-
-                if (otherPorts.length) {
-                    const otherLabel = document.createElement('div');
-                    otherLabel.textContent = 'Other ports (baseline timings, no links):';
-                    otherLabel.style.marginTop = '0.3rem';
-                    card.appendChild(otherLabel);
-
-                    otherPorts.sort((a, b) => a - b).forEach(port => {
-                        const t = rec[port];
-                        const row = document.createElement('div');
-                        row.className = 'port-row';
-                        row.innerHTML = `
-                            <span class="label">${port}:</span>
-                            <span class="time">${t.toFixed(0)} ms</span>
-                            <span>(no link)</span>
-                        `;
-                        card.appendChild(row);
-                    });
-                }
-
-                resultsEl.appendChild(card);
-            }
-        }
-
-        async function runScan() {
-            const base = parseSubnet24(subnetInput.value);
-            if (!base) return;
-
-            const randomPorts = parsePorts(randomPortsInput.value);
-            const webPorts = parsePorts(webPortsInput.value);
-
-            if (!webPorts.includes(80)) webPorts.unshift(80);
-
-            updateURLParams();
-            resultsEl.innerHTML = '';
-            setStatus('Starting scan...');
-            setProgress(0, 0);
-
             try {
-                // Phase 1: find interesting port 80 hosts
-                const { all80, interesting } = await phase1Sweep80(base);
-                if (interesting.length === 0) {
-                    setStatus('No interesting hosts found on port 80.');
-                    return;
-                }
-
-                // Phase 2: baseline + webish ports for these interesting hosts
-                const perIpRecords = await phase2PerHostPorts(interesting, randomPorts, webPorts);
-
-                // Render final boxes per IP
-                renderResults(interesting, perIpRecords, webPorts, randomPorts);
-                setStatus('Done. IP cards show all tried ports and timings.');
+                const url = port === 80 ? `http://${ip}` : `https://${ip}:${port}`;
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+                
+                await fetch(url, {
+                    method: 'HEAD',
+                    signal: controller.signal,
+                    mode: 'no-cors' // Important for cross-origin timing
+                });
+                clearTimeout(timeoutId);
+                return Math.round(performance.now() - start);
             } catch (e) {
-                console.error(e);
-                setStatus('Error during scan (check console).');
+                return TIMEOUT_MS;
             }
         }
 
-        startBtn.addEventListener('click', runScan);
-        clearBtn.addEventListener('click', () => {
+        // Get baseline timing for IP (average of baseline ports)
+        async function getBaseline(ip) {
+            const times = await Promise.all(BASELINE_PORTS.map(p => testPort(ip, p)));
+            return times.reduce((a, b) => a + b, 0) / times.length;
+        }
+
+        // Sweep phase 1: Find fast hosts on port 80
+        async function phase1Sweep(ips) {
+            const statusEl = document.getElementById('status');
+            const progressEl = document.getElementById('progress');
+            progressEl.style.display = 'block';
+            
+            const candidates = [];
+            for (let i = 0; i < ips.length; i++) {
+                const ip = ips[i];
+                statusEl.textContent = `Phase 1: Scanning ${ip} (${i + 1}/${ips.length})`;
+                progressEl.value = (i / ips.length) * 50;
+                
+                const time80 = await testPort(ip, PORT_80);
+                if (time80 < FAST_THRESHOLD) {
+                    candidates.push({ ip, time80, baseline: await getBaseline(ip) });
+                }
+                await new Promise(r => setTimeout(r, 50)); // Rate limit
+            }
+            progressEl.value = 50;
+            return candidates;
+        }
+
+        // Phase 2: Deep scan web ports on candidates
+        async function phase2Deepscan(candidates) {
+            const statusEl = document.getElementById('status');
+            const progressEl = document.getElementById('progress');
+            
+            const results = [];
+            for (let i = 0; i < candidates.length; i++) {
+                const cand = candidates[i];
+                statusEl.textContent = `Phase 2: Deep scanning ${cand.ip} (${i + 1}/${candidates.length})`;
+                progressEl.value = 50 + (i / candidates.length) * 50;
+                
+                const portTimes = { 80: cand.time80 };
+                const allWebTimes = [cand.time80];
+                
+                for (const port of WEB_PORTS) {
+                    const time = await testPort(cand.ip, port);
+                    portTimes[port] = time;
+                    allWebTimes.push(time);
+                }
+                
+                // Determine likely open ports (faster than baseline * threshold)
+                const avgBaseline = cand.baseline;
+                const likelyOpen = Object.entries(portTimes)
+                    .filter(([p, t]) => t < avgBaseline * CANDIDATE_THRESHOLD && t < TIMEOUT_MS * 0.8)
+                    .map(([p]) => Number(p));
+                
+                results.push({ ...cand, portTimes, likelyOpen });
+                await new Promise(r => setTimeout(r, 100)); // Rate limit
+            }
+            return results;
+        }
+
+        // Render results
+        function renderResults(hosts) {
+            const resultsEl = document.getElementById('results');
             resultsEl.innerHTML = '';
-            setStatus('Cleared. Idle.');
-            setProgress(0, 0);
+            
+            hosts.forEach(host => {
+                const box = document.createElement('div');
+                box.className = 'host-box';
+                
+                const pills = [];
+                // Port 80 link (always if candidate)
+                pills.push(`<a href="http://${host.ip}" class="pill http" target="_blank">HTTP:80 (${host.time80}ms)</a>`);
+                
+                // Other web ports
+                WEB_PORTS.forEach(port => {
+                    const time = host.portTimes[port];
+                    const isLikely = host.likelyOpen.includes(port);
+                    const protocol = port === 443 ? 'https://' : `https://${host.ip}:${port}`;
+                    const status = isLikely ? 'likely' : (time >= TIMEOUT_MS ? 'down' : 'down');
+                    pills.push(`<a href="${protocol}" class="pill ${status}" target="_blank">${port} (${time}ms)</a>`);
+                });
+                
+                box.innerHTML = `
+                    <div class="host-ip">${host.ip}</div>
+                    <div class="pills">${pills.join('')}</div>
+                    <div class="timings">
+                        ${Object.entries(host.portTimes).map(([p, t]) => 
+                            `<div class="port-row">
+                                <span class="port-num">Port ${p}</span>
+                                <span class="time-ms ${t >= TIMEOUT_MS ? 'timeout' : ''}">${t}ms</span>
+                            </div>`
+                        ).join('')}
+                        <div class="port-row">
+                            <span class="port-num">Baseline avg</span>
+                            <span class="time-ms">${Math.round(host.baseline)}ms</span>
+                        </div>
+                    </div>
+                `;
+                resultsEl.appendChild(box);
+            });
+        }
+
+        // Main scan function
+        async function runScan() {
+            const subnetInput = document.getElementById('subnet').value.trim();
+            const subnet = subnetInput || DEFAULT_SUBNET;
+            
+            const btn = document.getElementById('scanBtn');
+            const statusEl = document.getElementById('status');
+            
+            if (isScanning) return;
+            isScanning = true;
+            btn.disabled = true;
+            btn.textContent = 'Scanning...';
+            statusEl.className = 'status running';
+            statusEl.textContent = 'Parsing subnet...';
+            
+            try {
+                const ips = parseSubnet(subnet);
+                statusEl.textContent = `Found ${ips.length} IPs. Starting phase 1 sweep...`;
+                
+                const candidates = await phase1Sweep(ips);
+                statusEl.textContent = `Phase 1 complete. ${candidates.length} fast hosts found. Phase 2 deep scan...`;
+                
+                const results = await phase2Deepscan(candidates);
+                statusEl.textContent = `Scan complete! ${results.length} hosts analyzed.`;
+                
+                renderResults(results);
+            } catch (error) {
+                statusEl.className = 'status error';
+                statusEl.textContent = `Error: ${error.message}`;
+            } finally {
+                isScanning = false;
+                btn.disabled = false;
+                btn.textContent = 'Start Port Sweep';
+                document.getElementById('progress').style.display = 'none';
+            }
+        }
+
+        // Event listeners
+        document.getElementById('scanBtn').addEventListener('click', runScan);
+
+        // URL params support
+        const urlParams = new URLSearchParams(window.location.search);
+        const subnetParam = urlParams.get('subnet');
+        if (subnetParam) {
+            document.getElementById('subnet').value = subnetParam;
+        }
+
+        // Save to URL on change
+        document.getElementById('subnet').addEventListener('change', function() {
+            const url = new URL(window.location);
+            if (this.value) {
+                url.searchParams.set('subnet', this.value);
+            } else {
+                url.searchParams.delete('subnet');
+            }
+            window.history.replaceState({}, '', url);
         });
     </script>
 </body>
