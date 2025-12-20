@@ -93,13 +93,12 @@
             return ips;
         }
 
-        // Fixed port timing test with proper protocol
+        // FIXED: All requests use HTTPS regardless of port
         async function testPort(ip, port) {
             const start = performance.now();
             try {
-                const useHttp = port === 80;
-                const finalProtocol = useHttp ? 'http' : 'https';
-                const url = `${finalProtocol}://${ip}${port === 80 ? '' : `:${port}`}/favicon.ico`;
+                // ALWAYS HTTPS - even for port 80 timing baseline
+                const url = `https://${ip}:${port}/favicon.ico`;
                 
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
