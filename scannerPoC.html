@@ -33,6 +33,7 @@
         .legend-color { width: 20px; height: 20px; border-radius: 50%; }
         progress { width: 100%; height: 8px; border-radius: 4px; }
         .stats { font-size: 14px; color: #666; margin-bottom: 10px; }
+        .parallel-info { font-size: 12px; color: #666; margin-top: 5px; }
     </style>
 </head>
 <body>
@@ -41,7 +42,11 @@
     <div class="input-panel">
         <label for="subnet">Subnet (CIDR):</label>
         <input type="text" id="subnet" value="192.168.68.0/24" placeholder="e.g. 192.168.68.0/24">
-        <button id="scanBtn">Start Port Sweep</button>
+        <label for="concurrency">Concurrency:</label>
+        <input type="range" id="concurrency" min="5" max="50" value="20" style="width: 100%;">
+        <span id="concurrencyValue">20</span> parallel requests
+        <div class="parallel-info">Higher = faster but may trigger browser/network limits</div>
+        <button id="scanBtn">Start Parallel Port Sweep</button>
         <div id="status"></div>
         <progress id="progress" value="0" max="100" style="display: none;"></progress>
     </div>
@@ -59,10 +64,11 @@
         const DEFAULT_SUBNET = '192.168.68.0/24';
         const PORT_80 = 80;
         const WEB_PORTS = [443, 8443, 8000, 8006, 8080, 8008];
+        const BASELINE_PORTS = [123, 161, 179];
         const TIMEOUT_MS = 3000;
-        const BASELINE_PORTS = [123, 161, 179]; // UDP-like ports unlikely to respond
-        const FAST_THRESHOLD = 1200; // Much lower threshold for phase 1
-        const SUBNET_BASELINE_SAMPLES = 10; // Sample first N hosts for subnet baseline
+        const SUBNET_BASELINE_SAMPLES = 10;
+        const FAST_THRESHOLD_FACTOR = 2;
+        const LIKELY_OPEN_FACTOR = 1.3;
 
         let isScanning = false;
         let subnetBaseline = null;
@@ -87,16 +93,18 @@
             return ips;
         }
 
-        // Improved port timing test - uses image fetch for better cross-origin timing
-        async function testPort(ip, port, protocol = 'https') {
+        // Fixed port timing test with proper protocol
+        async function testPort(ip, port) {
             const start = performance.now();
             try {
-                // Use 1x1 pixel fetch - more reliable than HEAD for timing
-                const url = `${protocol}://${ip}:${port === 80 ? '' : port}/favicon.ico`;
+                const useHttp = port === 80;
+                const finalProtocol = useHttp ? 'http' : 'https';
+                const url = `${finalProtocol}://${ip}${port === 80 ? '' : `:${port}`}/favicon.ico`;
+                
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
                 
-                const response = await fetch(url, {
+                await fetch(url, {
                     method: 'GET',
                     signal: controller.signal,
                     mode: 'no-cors',
@@ -104,105 +112,132 @@
                 });
                 clearTimeout(timeoutId);
                 
-                // Even in no-cors, connection timing is measurable
                 return Math.round(performance.now() - start);
             } catch (e) {
                 return TIMEOUT_MS;
             }
         }
 
-        // Calculate subnet-wide baseline (avg of first N hosts on random high ports)
-        async function calculateSubnetBaseline(ips) {
+        // Parallel semaphore for controlled concurrency
+        class Semaphore {
+            constructor(concurrency) {
+                this.concurrency = concurrency;
+                this.queue = [];
+                this.active = 0;
+            }
+            
+            async acquire() {
+                return new Promise(resolve => {
+                    this.queue.push(resolve);
+                    this._processQueue();
+                });
+            }
+            
+            release() {
+                this.active--;
+                this._processQueue();
+            }
+            
+            _processQueue() {
+                while (this.active < this.concurrency && this.queue.length > 0) {
+                    this.active++;
+                    this.queue.shift()();
+                }
+            }
+        }
+
+        // Parallel baseline calculation
+        async function calculateSubnetBaseline(ips, semaphore) {
             const sampleIps = ips.slice(0, Math.min(SUBNET_BASELINE_SAMPLES, ips.length));
             const allTimes = [];
             
-            for (const ip of sampleIps) {
-                for (const port of BASELINE_PORTS) {
-                    const time = await testPort(ip, port, 'http');
-                    allTimes.push(time);
-                }
-            }
+            const baselinePromises = sampleIps.flatMap(ip => 
+                BASELINE_PORTS.map(port => 
+                    semaphore.acquire().then(async () => {
+                        const time = await testPort(ip, port);
+                        allTimes.push(time);
+                        semaphore.release();
+                        return time;
+                    })
+                )
+            );
+            
+            await Promise.all(baselinePromises);
             return allTimes.reduce((a, b) => a + b, 0) / allTimes.length;
         }
 
-        // Phase 1: Find fast hosts on port 80 vs SUBNET baseline
-        async function phase1Sweep(ips) {
-            const statusEl = document.getElementById('status');
-            const progressEl = document.getElementById('progress');
+        // Parallel Phase 1 with concurrency
+        async function phase1Sweep(ips, concurrency) {
+            const semaphore = new Semaphore(concurrency);
+            subnetBaseline = await calculateSubnetBaseline(ips, semaphore);
             
-            // First calculate subnet baseline
-            statusEl.textContent = 'Calculating subnet baseline...';
-            subnetBaseline = await calculateSubnetBaseline(ips);
+            const statusEl = document.getElementById('status');
             statusEl.textContent = `Subnet baseline: ${Math.round(subnetBaseline)}ms`;
             
-            progressEl.style.display = 'block';
             const candidates = [];
+            const phase1Promises = ips.map((ip, index) => 
+                semaphore.acquire().then(async () => {
+                    const time80 = await testPort(ip, PORT_80);
+                    semaphore.release();
+                    
+                    if (time80 < subnetBaseline * FAST_THRESHOLD_FACTOR && time80 < 2000) {
+                        candidates.push({ ip, time80 });
+                    }
+                    
+                    // Update progress
+                    document.getElementById('progress').value = (index / ips.length) * 50;
+                    
+                    return time80;
+                })
+            );
             
-            for (let i = 0; i < ips.length; i++) {
-                const ip = ips[i];
-                statusEl.textContent = `Phase 1: Testing ${ip} port 80 (${i + 1}/${ips.length})`;
-                progressEl.value = (i / ips.length) * 50;
-                
-                const time80 = await testPort(ip, PORT_80);
-                
-                // Much more lenient: anything < 2x subnet baseline AND < 2s
-                if (time80 < subnetBaseline * 2 && time80 < 2000) {
-                    candidates.push({ ip, time80 });
-                    statusEl.textContent += ` ✓ Fast: ${time80}ms`;
-                }
-                
-                await new Promise(r => setTimeout(r, 30)); // Faster rate limit
-            }
-            progressEl.value = 50;
+            await Promise.all(phase1Promises);
+            document.getElementById('progress').value = 50;
             return candidates;
         }
 
-        // Phase 2: Deep scan web ports + establish IP-specific baseline
-        async function phase2Deepscan(candidates) {
-            const statusEl = document.getElementById('status');
-            const progressEl = document.getElementById('progress');
-            
+        // Parallel Phase 2
+        async function phase2Deepscan(candidates, concurrency) {
+            const semaphore = new Semaphore(concurrency);
             const results = [];
-            for (let i = 0; i < candidates.length; i++) {
-                const cand = candidates[i];
-                statusEl.textContent = `Phase 2: Deep scan ${cand.ip} (${i + 1}/${candidates.length})`;
-                progressEl.value = 50 + (i / candidates.length) * 50;
+            
+            const deepscanPromises = candidates.map(async (cand, index) => {
+                await semaphore.acquire();
                 
-                // Get IP-specific baseline first
-                const baselineTimes = await Promise.all(
-                    BASELINE_PORTS.map(p => testPort(cand.ip, p, 'http'))
-                );
-                const ipBaseline = baselineTimes.reduce((a, b) => a + b, 0) / baselineTimes.length;
-                
-                const portTimes = { 80: cand.time80 };
-                
-                // Test all web ports
-                const webTimes = await Promise.all(
-                    WEB_PORTS.map(port => testPort(cand.ip, port, 'https'))
-                );
-                
-                WEB_PORTS.forEach((port, idx) => {
-                    portTimes[port] = webTimes[idx];
-                });
-                
-                // Mark likely open ports: < 1.3x IP baseline AND < 80% of timeout
-                const likelyOpen = Object.entries(portTimes)
-                    .filter(([p, t]) => {
-                        const time = Number(t);
-                        return time < ipBaseline * 1.3 && time < TIMEOUT_MS * 0.8;
-                    })
-                    .map(([p]) => Number(p));
-                
-                results.push({ 
-                    ...cand, 
-                    portTimes, 
-                    ipBaseline: Math.round(ipBaseline),
-                    subnetBaseline: Math.round(subnetBaseline),
-                    likelyOpen 
-                });
-                
-                await new Promise(r => setTimeout(r, 80));
-            }
+                try {
+                    // Parallel baseline for this IP
+                    const baselinePromises = BASELINE_PORTS.map(p => testPort(cand.ip, p));
+                    const baselineTimes = await Promise.all(baselinePromises);
+                    const ipBaseline = baselineTimes.reduce((a, b) => a + b, 0) / baselineTimes.length;
+                    
+                    // Parallel web ports
+                    const webPromises = WEB_PORTS.map(port => testPort(cand.ip, port));
+                    const webTimes = await Promise.all(webPromises);
+                    
+                    const portTimes = { 80: cand.time80 };
+                    WEB_PORTS.forEach((port, idx) => {
+                        portTimes[port] = webTimes[idx];
+                    });
+                    
+                    const likelyOpen = Object.entries(portTimes)
+                        .filter(([p, t]) => Number(t) < ipBaseline * LIKELY_OPEN_FACTOR && Number(t) < TIMEOUT_MS * 0.8)
+                        .map(([p]) => Number(p));
+                    
+                    results.push({ 
+                        ...cand, 
+                        portTimes, 
+                        ipBaseline: Math.round(ipBaseline),
+                        subnetBaseline: Math.round(subnetBaseline),
+                        likelyOpen 
+                    });
+                    
+                    document.getElementById('progress').value = 50 + (index / candidates.length) * 50;
+                } finally {
+                    semaphore.release();
+                }
+            });
+            
+            await Promise.all(deepscanPromises);
             return results;
         }
 
@@ -223,14 +258,14 @@
                     const time = host.portTimes[port];
                     const isLikely = host.likelyOpen.includes(port);
                     const protocol = port === 443 ? `https://${host.ip}` : `https://${host.ip}:${port}`;
-                    const status = isLikely ? 'likely' : (time >= TIMEOUT_MS ? 'down' : 'down');
+                    const status = isLikely ? 'https' : (time >= TIMEOUT_MS ? 'down' : 'down');
                     pills.push(`<a href="${protocol}" class="pill ${status}" target="_blank">${port} (${time}ms)</a>`);
                 });
                 
                 box.innerHTML = `
                     <div class="host-ip">${host.ip}</div>
                     <div class="stats">
-                        Subnet baseline: ${host.subnetBaseline}ms | IP baseline: ${host.ipBaseline}ms
+                        Subnet: ${host.subnetBaseline}ms | IP baseline: ${host.ipBaseline}ms
                     </div>
                     <div class="pills">${pills.join('')}</div>
                     <div class="timings">
@@ -250,10 +285,10 @@
             });
         }
 
-        // Main scan function (unchanged structure)
+        // Main scan function
         async function runScan() {
-            const subnetInput = document.getElementById('subnet').value.trim();
-            const subnet = subnetInput || DEFAULT_SUBNET;
+            const subnetInput = document.getElementById('subnet').value.trim() || DEFAULT_SUBNET;
+            const concurrency = parseInt(document.getElementById('concurrency').value);
             
             const btn = document.getElementById('scanBtn');
             const statusEl = document.getElementById('status');
@@ -266,34 +301,42 @@
             statusEl.textContent = 'Parsing subnet...';
             
             try {
-                const ips = parseSubnet(subnet);
-                statusEl.textContent = `Found ${ips.length} IPs. Starting scan...`;
+                const ips = parseSubnet(subnetInput);
+                statusEl.textContent = `Found ${ips.length} IPs. Parallel scanning (${concurrency} concurrent)...`;
                 
-                const candidates = await phase1Sweep(ips);
+                document.getElementById('progress').style.display = 'block';
+                document.getElementById('progress').value = 0;
+                
+                const candidates = await phase1Sweep(ips, concurrency);
+                
                 if (candidates.length === 0) {
-                    statusEl.textContent = `No fast hosts found. Subnet baseline was ${Math.round(subnetBaseline)}ms. Try a different subnet.`;
+                    statusEl.textContent = `No fast hosts found. Subnet baseline: ${Math.round(subnetBaseline)}ms`;
                     return;
                 }
                 
-                statusEl.textContent = `Phase 1: ${candidates.length} candidates found. Phase 2...`;
-                const results = await phase2Deepscan(candidates);
+                statusEl.textContent = `${candidates.length} candidates. Deep scanning...`;
+                const results = await phase2Deepscan(candidates, concurrency);
                 
                 renderResults(results);
-                statusEl.textContent = `Complete! ${results.length} hosts analyzed.`;
+                statusEl.textContent = `Complete! ${results.length} hosts analyzed (${concurrency}x parallel)`;
             } catch (error) {
                 statusEl.className = 'status error';
                 statusEl.textContent = `Error: ${error.message}`;
             } finally {
                 isScanning = false;
                 btn.disabled = false;
-                btn.textContent = 'Start Port Sweep';
+                btn.textContent = 'Start Parallel Port Sweep';
                 document.getElementById('progress').style.display = 'none';
             }
         }
 
+        // Event listeners
         document.getElementById('scanBtn').addEventListener('click', runScan);
+        document.getElementById('concurrency').addEventListener('input', function() {
+            document.getElementById('concurrencyValue').textContent = this.value;
+        });
 
-        // URL params support (unchanged)
+        // URL params support
         const urlParams = new URLSearchParams(window.location.search);
         const subnetParam = urlParams.get('subnet');
         if (subnetParam) {
