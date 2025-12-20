@@ -17,7 +17,7 @@
         .status { margin-top: 10px; padding: 10px; border-radius: 6px; background: #d4edda; border: 1px solid #c3e6cb; }
         .results { display: flex; flex-direction: column; gap: 15px; margin-top: 20px; }
         .host-box { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); border-left: 5px solid #007bff; opacity: 0.3; transition: all 0.3s; }
-        .host-box.visible { opacity: 1; transform: translateY(0); }
+        .host-box.visible { opacity: 1; transform: translateY(0); border-left-color: #28a745; }
         .host-box.hidden { opacity: 0.3; transform: translateY(10px); }
         .host-ip { font-size: 24px; font-weight: 600; margin-bottom: 15px; color: #1a1a1a; }
         .initial-timing { font-size: 18px; font-weight: 500; color: #dc3545; font-family: monospace; }
@@ -32,7 +32,6 @@
         .pill.likely { background: linear-gradient(135deg, #ffc107, #fd7e14); color: white; box-shadow: 0 2px 8px rgba(255,193,7,0.4); }
         .pill.down { background: #6c757d; color: white; opacity: 0.7; }
         .legend { display: flex; flex-wrap: wrap; gap: 20px; font-size: 14px; margin-top: 20px; }
-        .legend-item { display: flex; align-items: center; gap: 6px; }
         .legend-color { width: 20px; height: 20px; border-radius: 50%; }
         .stats { font-size: 14px; color: #666; margin-bottom: 10px; }
         .concurrency-display { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
@@ -48,43 +47,41 @@
         <div class="input-row">
             <div class="input-col">
                 <label for="subnet">Subnet (CIDR):</label>
-                <input type="text" id="subnet" value="192.168.68.0/24" placeholder="e.g. 192.168.68.0/24">
+                <input type="text" id="subnet" value="192.168.68.0/24">
             </div>
             <div class="input-col">
-                <label for="initialTimeout">Initial Timeout (ms):</label>
-                <input type="number" id="initialTimeout" value="3000" min="1000" max="10000">
+                <label for="initialTimeout">Timeout (ms):</label>
+                <input type="number" id="initialTimeout" value="5000" min="2000" max="15000">
             </div>
         </div>
         <div class="concurrency-display">
             <label for="concurrency">Concurrency:</label>
-            <input type="range" id="concurrency" min="5" max="50" value="20">
-            <span id="concurrencyValue">20</span>
+            <input type="range" id="concurrency" min="5" max="30" value="15">
+            <span id="concurrencyValue">15</span>
         </div>
         <button id="phase1Btn">Phase 1: Port 80 Sweep</button>
-        <button id="phase2Btn" disabled>Phase 2: Deep Scan Candidates</button>
+        <button id="phase2Btn" disabled>Phase 2: Deep Scan Visible</button>
         <div id="status"></div>
         <progress id="progress" value="0" max="100" style="display: none; width: 100%; height: 8px; border-radius: 4px;"></progress>
     </div>
 
     <div class="slider-container">
         <label>Threshold: </label>
-        <input type="range" id="thresholdSlider" min="0" max="100" value="100" style="flex: 1;">
-        <span class="slider-value" id="thresholdValue">3000ms</span>
-        <span>Max: <span id="maxThreshold">3000</span>ms</span>
+        <input type="range" id="thresholdSlider" min="0" max="100" value="100">
+        <span class="slider-value" id="thresholdValue">5000ms</span>
+        <span>Max: <span id="maxThreshold">5000</span>ms</span>
     </div>
 
     <div id="phase1Results" class="results"></div>
-    
     <div id="phase2Results" class="deep-scan-section" style="display: none;">
         <h2>Deep Scan Results</h2>
         <div id="deepResults" class="deep-results"></div>
     </div>
 
     <div class="legend">
-        <div class="legend-item"><span class="legend-color" style="background: #007bff;"></span>Phase 1 candidate</div>
+        <div class="legend-item"><span class="legend-color" style="background: #28a745;"></span>Visible candidate (fast port 80)</div>
         <div class="legend-item"><span class="legend-color" style="background: linear-gradient(135deg, #28a745, #20c997);"></span>HTTPS likely open</div>
         <div class="legend-item"><span class="legend-color" style="background: linear-gradient(135deg, #ffc107, #fd7e14);"></span>Timing anomaly</div>
-        <div class="legend-item"><span class="legend-color" style="background: #6c757d;"></span>Timeout/slow</div>
     </div>
 
     <script>
@@ -92,12 +89,38 @@
         const PORT_80 = 80;
         const WEB_PORTS = [443, 8443, 8000, 8006, 8080, 8008];
         const BASELINE_PORTS = [123, 161, 179];
-
         let phase1Results = [];
-        let maxTimeout = 3000;
+        let maxTimeout = 5000;
         let isScanning = false;
 
-        // Parse CIDR
+        // FIXED: WebSocket TCP connect timing (bypasses CORS timing blocks)
+        async function testPort(ip, port, timeoutMs) {
+            return new Promise((resolve) => {
+                const start = performance.now();
+                const ws = new WebSocket(`wss://${ip}:${port}`);
+                
+                const timeoutId = setTimeout(() => {
+                    ws.close();
+                    resolve(Math.min(timeoutMs, Math.round(performance.now() - start)));
+                }, timeoutMs);
+                
+                ws.onopen = () => {
+                    clearTimeout(timeoutId);
+                    ws.close();
+                    resolve(Math.round(performance.now() - start));
+                };
+                
+                ws.onerror = () => {
+                    clearTimeout(timeoutId);
+                    resolve(Math.min(timeoutMs, Math.round(performance.now() - start)));
+                };
+                
+                ws.onclose = () => {
+                    clearTimeout(timeoutId);
+                };
+            });
+        }
+
         function parseSubnet(cidr) {
             const [net, bits] = cidr.split('/');
             const [a, b, c, d] = net.match(/\d+/g).map(Number);
@@ -112,28 +135,6 @@
             return ips;
         }
 
-        // HTTPS port test
-        async function testPort(ip, port, timeout) {
-            const start = performance.now();
-            try {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), timeout);
-                const url = `https://${ip}:${port}/favicon.ico`;
-                
-                await fetch(url, {
-                    method: 'GET',
-                    signal: controller.signal,
-                    mode: 'no-cors',
-                    cache: 'no-cache'
-                });
-                clearTimeout(timeoutId);
-                return Math.round(performance.now() - start);
-            } catch (e) {
-                return timeout;
-            }
-        }
-
-        // Semaphore
         class Semaphore {
             constructor(concurrency) {
                 this.concurrency = concurrency;
@@ -158,7 +159,6 @@
             }
         }
 
-        // Phase 1: Port 80 sweep - create ALL boxes
         async function phase1Sweep() {
             const subnetInput = document.getElementById('subnet').value.trim() || DEFAULT_SUBNET;
             const concurrency = parseInt(document.getElementById('concurrency').value);
@@ -171,8 +171,7 @@
 
             isScanning = true;
             btn.disabled = true;
-            statusEl.className = 'status';
-            statusEl.textContent = 'Phase 1: Port 80 sweep...';
+            statusEl.textContent = `Phase 1: Testing port 80 (${concurrency}x parallel)...`;
             progressEl.style.display = 'block';
             progressEl.value = 0;
 
@@ -187,19 +186,16 @@
                     semaphore.release();
                     
                     phase1Results.push({ ip, time80 });
-                    progressEl.value = (index / ips.length) * 100;
-                    statusEl.textContent = `Phase 1: ${index + 1}/${ips.length} (${Math.round(time80)}ms)`;
-                    
-                    return { ip, time80 };
+                    progressEl.value = ((index + 1) / ips.length) * 100;
+                    statusEl.textContent = `Phase 1: ${index + 1}/${ips.length} (${time80}ms avg)`;
                 });
 
                 await Promise.all(promises);
                 
-                // Sort by timing (fastest first)
                 phase1Results.sort((a, b) => a.time80 - b.time80);
-                
                 renderPhase1Results();
-                statusEl.innerHTML = `Phase 1 complete! ${phase1Results.length} hosts scanned. <strong>Drag threshold to filter</strong>`;
+                
+                statusEl.innerHTML = `✓ Phase 1 complete! ${phase1Results.filter(r => r.time80 < maxTimeout * 0.5).length} fast hosts found. <strong>Drag threshold slider</strong>`;
                 document.getElementById('phase2Btn').disabled = false;
                 document.getElementById('thresholdSlider').max = 100;
                 document.getElementById('maxThreshold').textContent = maxTimeout;
@@ -209,34 +205,31 @@
             } finally {
                 isScanning = false;
                 btn.disabled = false;
-                progressEl.style.display = 'none';
+                btn.textContent = 'Phase 1: Port 80 Sweep ✓';
             }
         }
 
-        // Render Phase 1 results with threshold filtering
         function renderPhase1Results() {
             const resultsEl = document.getElementById('phase1Results');
             resultsEl.innerHTML = phase1Results.map(host => `
                 <div class="host-box hidden" data-time="${host.time80}">
                     <div class="host-ip">${host.ip}</div>
-                    <div class="initial-timing ${host.time80 < maxTimeout * 0.5 ? 'fast' : ''}">
-                        Port 80: ${host.time80}ms
+                    <div class="initial-timing ${host.time80 < 1500 ? 'fast' : ''}">
+                        Port 80: <strong>${host.time80}ms</strong>
                     </div>
                 </div>
             `).join('');
         }
 
-        // Phase 2: Deep scan VISIBLE candidates
         async function phase2Deepscan() {
             const visibleBoxes = document.querySelectorAll('.host-box.visible');
             if (visibleBoxes.length === 0) {
-                alert('No visible candidates! Adjust threshold first.');
+                alert('No visible candidates selected! Adjust threshold slider.');
                 return;
             }
 
             const candidates = Array.from(visibleBoxes).map(box => {
                 const ip = box.querySelector('.host-ip').textContent;
-                const timeMatch = box.dataset.time;
                 return phase1Results.find(r => r.ip === ip);
             });
 
@@ -246,56 +239,30 @@
 
             document.getElementById('phase2Btn').disabled = true;
             const statusEl = document.getElementById('status');
-            statusEl.textContent = `Phase 2: Deep scanning ${candidates.length} candidates...`;
+            statusEl.textContent = `Phase 2: Deep scanning ${candidates.length} hosts...`;
 
             try {
                 const promises = candidates.map(async (cand, index) => {
                     await semaphore.acquire();
                     try {
                         const portTimes = { 80: cand.time80 };
-                        const allTimes = [cand.time80];
-
-                        // Test web ports + baseline
-                        const allPorts = [...BASELINE_PORTS, ...WEB_PORTS];
-                        const portPromises = allPorts.map(port => 
+                        
+                        // Parallel test all other ports
+                        const testPromises = WEB_PORTS.map(port => 
                             testPort(cand.ip, port, maxTimeout).then(time => {
                                 portTimes[port] = time;
-                                allTimes.push(time);
-                                return { port, time };
+                                return time;
                             })
                         );
-
-                        await Promise.all(portPromises);
-
-                        // Mode-based detection
-                        const bucketSize = 500;
-                        const buckets = {};
-                        allTimes.forEach(time => {
-                            const bucket = Math.floor(time / bucketSize) * bucketSize;
-                            buckets[bucket] = (buckets[bucket] || 0) + 1;
-                        });
-                        let modeBucket = 0, maxCount = 0;
-                        Object.entries(buckets).forEach(([bucket, count]) => {
-                            if (count > maxCount) {
-                                maxCount = count;
-                                modeBucket = parseInt(bucket);
-                            }
-                        });
-                        const modeTime = modeBucket + bucketSize / 2;
-                        const threshold = modeTime / 4;
-
+                        
+                        await Promise.all(testPromises);
+                        
+                        // Simple threshold: anything < 2s likely open
                         const likelyOpen = Object.entries(portTimes)
-                            .filter(([p, t]) => Number(t) <= threshold)
+                            .filter(([p, t]) => Number(t) < 2000)
                             .map(([p]) => Number(p));
 
-                        deepResults.push({
-                            ...cand,
-                            portTimes,
-                            modeTime: Math.round(modeTime),
-                            threshold: Math.round(threshold),
-                            likelyOpen
-                        });
-
+                        deepResults.push({ ...cand, portTimes, likelyOpen });
                         statusEl.textContent = `Phase 2: ${index + 1}/${candidates.length} (${cand.ip})`;
                     } finally {
                         semaphore.release();
@@ -305,55 +272,44 @@
                 await Promise.all(promises);
                 renderDeepResults(deepResults);
                 document.getElementById('phase2Results').style.display = 'block';
-                statusEl.textContent = `Phase 2 complete! ${deepResults.length} hosts deep scanned.`;
-
-            } catch (error) {
-                statusEl.textContent = `Error: ${error.message}`;
             } finally {
                 document.getElementById('phase2Btn').disabled = false;
+                document.getElementById('phase2Btn').textContent = 'Phase 2: Deep Scan ✓';
             }
         }
 
         function renderDeepResults(results) {
             const deepEl = document.getElementById('deepResults');
             deepEl.innerHTML = results.map(host => {
-                const pills = [
-                    `<a href="http://${host.ip}" class="pill http" target="_blank">HTTP:80 (${host.time80}ms)</a>`
-                ];
+                const pills = [`<a href="http://${host.ip}" class="pill http" target="_blank">HTTP:80 (${host.time80}ms)</a>`];
+                
                 WEB_PORTS.forEach(port => {
                     const time = host.portTimes[port] || maxTimeout;
                     const isLikely = host.likelyOpen.includes(port);
                     const protocol = port === 443 ? `https://${host.ip}` : `https://${host.ip}:${port}`;
-                    const status = isLikely ? 'likely' : (time >= maxTimeout ? 'down' : 'down');
+                    const status = isLikely ? 'https' : 'down';
                     pills.push(`<a href="${protocol}" class="pill ${status}" target="_blank">${port} (${time}ms)</a>`);
                 });
 
                 return `
                     <div class="deep-host-box">
                         <div class="host-ip">${host.ip}</div>
-                        <div class="stats">P80: ${host.time80}ms | Mode: ${host.modeTime}ms | Threshold: ${host.threshold}ms</div>
+                        <div class="stats">Port 80: ${host.time80}ms</div>
                         <div class="pills">${pills.join('')}</div>
                     </div>
                 `;
             }).join('');
         }
 
-        // Threshold slider logic
         function updateThreshold() {
             const slider = document.getElementById('thresholdSlider');
             const value = (slider.value / 100) * maxTimeout;
             document.getElementById('thresholdValue').textContent = Math.round(value) + 'ms';
             
-            const thresholdMs = value;
             document.querySelectorAll('.host-box').forEach(box => {
                 const time = parseInt(box.dataset.time);
-                if (time <= thresholdMs) {
-                    box.classList.add('visible');
-                    box.classList.remove('hidden');
-                } else {
-                    box.classList.add('hidden');
-                    box.classList.remove('visible');
-                }
+                box.classList.toggle('visible', time <= value);
+                box.classList.toggle('hidden', time > value);
             });
         }
 
@@ -365,23 +321,16 @@
             document.getElementById('concurrencyValue').textContent = this.value;
         });
         document.getElementById('initialTimeout').addEventListener('input', function() {
-            document.getElementById('maxThreshold').textContent = this.value;
             maxTimeout = parseInt(this.value);
-            document.getElementById('thresholdSlider').max = 100;
+            document.getElementById('maxThreshold').textContent = maxTimeout;
             if (phase1Results.length > 0) updateThreshold();
         });
 
         // URL params
         const urlParams = new URLSearchParams(window.location.search);
-        const subnetParam = urlParams.get('subnet');
-        if (subnetParam) document.getElementById('subnet').value = subnetParam;
-
-        document.getElementById('subnet').addEventListener('change', function() {
-            const url = new URL(window.location);
-            if (this.value) url.searchParams.set('subnet', this.value);
-            else url.searchParams.delete('subnet');
-            window.history.replaceState({}, '', url);
-        });
+        if (urlParams.get('subnet')) {
+            document.getElementById('subnet').value = urlParams.get('subnet');
+        }
     </script>
 </body>
 </html>
