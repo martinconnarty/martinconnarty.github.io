@@ -14,25 +14,24 @@
         .status { margin-top: 10px; padding: 10px; border-radius: 6px; }
         .status.running { background: #fff3cd; border: 1px solid #ffeaa7; }
         .status.error { background: #f8d7da; border: 1px solid #f5c6cb; }
-        .results { display: flex; flex-direction: column; gap: 20px; }
-        .host-box { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); border-left: 5px solid #007bff; }
-        .host-ip { font-size: 24px; font-weight: 600; margin-bottom: 10px; color: #1a1a1a; }
-        .timings { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 15px; }
-        .port-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: #f8f9fa; border-radius: 6px; font-family: monospace; }
-        .port-num { font-weight: 500; color: #495057; }
-        .time-ms { font-weight: 600; color: #28a745; }
-        .timeout { color: #dc3545; font-weight: 500; }
-        .pills { display: flex; flex-wrap: wrap; gap: 8px; }
-        .pill { padding: 8px 16px; border-radius: 20px; text-decoration: none; font-weight: 500; font-size: 14px; transition: all 0.2s; }
-        .pill.http { background: #007bff; color: white; }
-        .pill.https { background: linear-gradient(135deg, #28a745, #20c997); color: white; }
-        .pill.likely { background: linear-gradient(135deg, #ffc107, #fd7e14); color: white; box-shadow: 0 2px 8px rgba(255,193,7,0.4); }
-        .pill.down { background: #6c757d; color: white; opacity: 0.7; }
+        .mode-box { background: linear-gradient(135deg, #007bff, #0056b3); color: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; text-align: center; box-shadow: 0 4px 20px rgba(0,123,255,0.3); }
+        .mode-stats { font-size: 18px; font-weight: 600; margin-bottom: 5px; }
+        .mode-details { font-size: 14px; opacity: 0.9; }
+        .toggle-panel { background: white; padding: 15px 20px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px; display: flex; align-items: center; gap: 15px; }
+        .toggle-btn { background: #28a745; padding: 10px 20px; border-radius: 25px; font-weight: 500; }
+        .toggle-btn.active { background: #dc3545; }
+        .results { display: flex; flex-direction: column; gap: 15px; }
+        .ip-box { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); border-left: 5px solid #6c757d; opacity: 0.5; transform: translateX(-10px); transition: all 0.3s ease; }
+        .ip-box.eligible { border-left-color: #007bff; opacity: 1; transform: translateX(0); }
+        .ip-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .ip-addr { font-size: 20px; font-weight: 600; color: #1a1a1a; }
+        .ip-time { font-family: monospace; font-size: 18px; font-weight: 600; color: #dc3545; }
+        .ip-box.eligible .ip-time { color: #28a745; }
+        .count-display { font-size: 16px; font-weight: 500; color: #495057; }
         .legend { display: flex; flex-wrap: wrap; gap: 20px; font-size: 14px; margin-top: 20px; }
         .legend-item { display: flex; align-items: center; gap: 6px; }
         .legend-color { width: 20px; height: 20px; border-radius: 50%; }
         progress { width: 100%; height: 8px; border-radius: 4px; }
-        .stats { font-size: 14px; color: #666; margin-bottom: 10px; }
         .parallel-info { font-size: 12px; color: #666; margin-top: 5px; }
         .concurrency-display { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
     </style>
@@ -54,24 +53,31 @@
         <progress id="progress" value="0" max="100" style="display: none;"></progress>
     </div>
 
+    <div id="modeBox" class="mode-box" style="display: none;">
+        <div class="mode-stats" id="modeStats"></div>
+        <div class="mode-details" id="modeDetails"></div>
+    </div>
+
+    <div id="togglePanel" class="toggle-panel" style="display: none;">
+        <button id="toggleBtn" class="toggle-btn">Hide Eligible (0)</button>
+        <div class="count-display" id="countDisplay">0 total IPs scanned</div>
+    </div>
+
     <div id="results" class="results"></div>
 
     <div class="legend">
-        <div class="legend-item"><span class="legend-color" style="background: #007bff;"></span>HTTP (80) - 4x faster than mode</div>
-        <div class="legend-item"><span class="legend-color" style="background: linear-gradient(135deg, #28a745, #20c997);"></span>HTTPS - Likely open</div>
-        <div class="legend-item"><span class="legend-color" style="background: linear-gradient(135deg, #ffc107, #fd7e14);"></span>Timing anomaly (4x faster)</div>
-        <div class="legend-item"><span class="legend-color" style="background: #6c757d;"></span>Mode/Timeout cluster</div>
+        <div class="legend-item"><span class="legend-color" style="background: #007bff;"></span>Eligible (4x faster than mode)</div>
+        <div class="legend-item"><span class="legend-color" style="background: #6c757d;"></span>Near mode cluster</div>
     </div>
 
     <script>
         const DEFAULT_SUBNET = '192.168.68.0/24';
         const PORT_80 = 80;
-        const WEB_PORTS = [443, 8443, 8000, 8006, 8080, 8008];
-        const BASELINE_PORTS = [123, 161, 179];
         const TIMEOUT_MS = 3000;
-        const MODE_THRESHOLD_FACTOR = 4; // 4x quicker than mode
+        const MODE_THRESHOLD_FACTOR = 4;
 
         let isScanning = false;
+        let allPhase1Results = [];
 
         // Parse CIDR to IP range
         function parseSubnet(cidr) {
@@ -130,7 +136,7 @@
                     modeBucket = parseInt(bucket);
                 }
             });
-            return modeBucket + bucketSize / 2; // Center of mode bucket
+            return modeBucket + bucketSize / 2;
         }
 
         // Parallel semaphore
@@ -158,7 +164,7 @@
             }
         }
 
-        // Phase 1: Mode-based port 80 sweep
+        // Phase 1: Mode-based sweep with ALL IPs shown
         async function phase1Sweep(ips, concurrency) {
             const semaphore = new Semaphore(concurrency);
             const statusEl = document.getElementById('status');
@@ -168,135 +174,97 @@
             progressEl.style.display = 'block';
             
             const allTimes = [];
-            const results = [];
+            allPhase1Results = [];
             
             const phase1Promises = ips.map((ip, index) => 
                 semaphore.acquire().then(async () => {
                     const time80 = await testPort(ip, PORT_80);
                     allTimes.push(time80);
-                    results.push({ ip, time80 });
+                    const result = { ip, time80 };
+                    allPhase1Results.push(result);
                     semaphore.release();
-                    progressEl.value = (index / ips.length) * 50;
-                    statusEl.textContent = `Phase 1: ${index + 1}/${ips.length} (${Math.round(time80)}ms)`;
-                    return { ip, time80 };
+                    progressEl.value = (index / ips.length) * 100;
+                    return result;
                 })
             );
             
             await Promise.all(phase1Promises);
-            progressEl.value = 50;
             
             // Calculate mode and threshold
             const modeTime = calculateMode(allTimes);
             const fastThreshold = modeTime / MODE_THRESHOLD_FACTOR;
             
-            statusEl.textContent = `Mode: ${Math.round(modeTime)}ms, Threshold: ${Math.round(fastThreshold)}ms (4x faster)`;
+            // Mark eligible
+            allPhase1Results.forEach(result => {
+                result.eligible = result.time80 <= fastThreshold;
+            });
             
-            // Filter candidates
-            const candidates = results.filter(r => r.time80 <= fastThreshold);
-            return candidates;
+            // Show mode box
+            document.getElementById('modeBox').style.display = 'block';
+            document.getElementById('modeStats').textContent = `${Math.round(modeTime)}ms MODE`;
+            document.getElementById('modeDetails').textContent = 
+                `Threshold: ${Math.round(fastThreshold)}ms (${MODE_THRESHOLD_FACTOR}x faster) | ${allPhase1Results.filter(r => r.eligible).length} eligible`;
+            
+            // Show toggle panel
+            document.getElementById('togglePanel').style.display = 'flex';
+            updateToggleDisplay();
+            
+            renderPhase1Results();
+            statusEl.textContent = `Phase 1 complete! ${allPhase1Results.filter(r => r.eligible).length} eligible IPs`;
         }
 
-        // Phase 2: Deep scan with per-IP mode analysis
-        async function phase2Deepscan(candidates, concurrency) {
-            const semaphore = new Semaphore(concurrency);
-            const results = [];
+        // Render ALL phase 1 results with toggle
+        function renderPhase1Results() {
+            const resultsEl = document.getElementById('results');
+            resultsEl.innerHTML = allPhase1Results
+                .sort((a, b) => a.time80 - b.time80)
+                .map(result => {
+                    const eligibleClass = result.eligible ? 'eligible' : '';
+                    return `
+                        <div class="ip-box ${eligibleClass}" data-ip="${result.ip}">
+                            <div class="ip-header">
+                                <div class="ip-addr">${result.ip}</div>
+                                <div class="ip-time">${result.time80}ms</div>
+                            </div>
+                            <div style="font-size: 14px; color: #666;">
+                                ${result.eligible ? '✓ 4x faster than mode' : '○ Near mode cluster'}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+        }
+
+        // Toggle eligible visibility
+        function toggleEligible() {
+            const toggleBtn = document.getElementById('toggleBtn');
+            const isShowingEligible = toggleBtn.classList.contains('active');
             
-            const deepscanPromises = candidates.map(async (cand, index) => {
-                await semaphore.acquire();
-                try {
-                    const statusEl = document.getElementById('status');
-                    const progressEl = document.getElementById('progress');
-                    
-                    statusEl.textContent = `Phase 2: ${cand.ip} (${index + 1}/${candidates.length})`;
-                    progressEl.value = 50 + (index / candidates.length) * 50;
-                    
-                    // Test ALL ports for this IP (baseline + web)
-                    const allPorts = [...BASELINE_PORTS, ...WEB_PORTS, PORT_80];
-                    const allTimes = [];
-                    const portTimes = {};
-                    
-                    // Parallel test all ports
-                    const portPromises = allPorts.map(port => 
-                        testPort(cand.ip, port).then(time => {
-                            allTimes.push(time);
-                            portTimes[port] = time;
-                            return { port, time };
-                        })
-                    );
-                    
-                    await Promise.all(portPromises);
-                    
-                    // Calculate IP-specific mode
-                    const ipMode = calculateMode(allTimes);
-                    const ipThreshold = ipMode / MODE_THRESHOLD_FACTOR;
-                    
-                    // Likely open ports (4x faster than IP mode)
-                    const likelyOpen = Object.entries(portTimes)
-                        .filter(([p, t]) => Number(t) <= ipThreshold)
-                        .map(([p]) => Number(p));
-                    
-                    results.push({
-                        ...cand,
-                        portTimes,
-                        ipMode: Math.round(ipMode),
-                        ipThreshold: Math.round(ipThreshold),
-                        allTimes,
-                        likelyOpen
-                    });
-                } finally {
-                    semaphore.release();
+            document.querySelectorAll('.ip-box').forEach(box => {
+                const ip = box.dataset.ip;
+                const result = allPhase1Results.find(r => r.ip === ip);
+                if (result.eligible) {
+                    box.style.display = isShowingEligible ? 'none' : 'block';
                 }
             });
             
-            await Promise.all(deepscanPromises);
-            return results;
-        }
-
-        // Render results
-        function renderResults(hosts) {
-            const resultsEl = document.getElementById('results');
-            resultsEl.innerHTML = '';
+            toggleBtn.classList.toggle('active');
+            toggleBtn.textContent = isShowingEligible ? 'Hide Eligible (' + allPhase1Results.filter(r => r.eligible).length + ')' : 
+                                   'Show Eligible Only (' + allPhase1Results.filter(r => r.eligible).length + ')';
             
-            hosts.forEach(host => {
-                const box = document.createElement('div');
-                box.className = 'host-box';
-                
-                const pills = [
-                    `<a href="http://${host.ip}" class="pill http" target="_blank">HTTP:80 (${host.time80}ms)</a>`
-                ];
-                
-                WEB_PORTS.forEach(port => {
-                    const time = host.portTimes[port] || TIMEOUT_MS;
-                    const isLikely = host.likelyOpen.includes(port);
-                    const protocol = port === 443 ? `https://${host.ip}` : `https://${host.ip}:${port}`;
-                    const status = isLikely ? 'likely' : (time >= TIMEOUT_MS ? 'down' : 'down');
-                    pills.push(`<a href="${protocol}" class="pill ${status}" target="_blank">${port} (${time}ms)</a>`);
-                });
-                
-                box.innerHTML = `
-                    <div class="host-ip">${host.ip}</div>
-                    <div class="stats">
-                        P80: ${host.time80}ms | IP Mode: ${host.ipMode}ms | Threshold: ${host.ipThreshold}ms
-                    </div>
-                    <div class="pills">${pills.join('')}</div>
-                    <div class="timings">
-                        ${Object.entries(host.portTimes).sort(([a],[b])=>a-b).map(([p, t]) => 
-                            `<div class="port-row">
-                                <span class="port-num">Port ${p}</span>
-                                <span class="time-ms ${t >= TIMEOUT_MS ? 'timeout' : ''}">${t}ms</span>
-                            </div>`
-                        ).join('')}
-                        <div class="port-row">
-                            <span class="port-num">IP Mode</span>
-                            <span class="time-ms">${host.ipMode}ms</span>
-                        </div>
-                    </div>
-                `;
-                resultsEl.appendChild(box);
-            });
+            updateCountDisplay();
         }
 
-        // Main scan
+        function updateToggleDisplay() {
+            const eligibleCount = allPhase1Results.filter(r => r.eligible).length;
+            document.getElementById('countDisplay').textContent = 
+                `${eligibleCount} eligible / ${allPhase1Results.length} total`;
+        }
+
+        function updateCountDisplay() {
+            updateToggleDisplay();
+        }
+
+        // Main scan (Phase 1 only for now)
         async function runScan() {
             const subnetInput = document.getElementById('subnet').value.trim() || DEFAULT_SUBNET;
             const concurrency = parseInt(document.getElementById('concurrency').value);
@@ -315,29 +283,20 @@
                 const ips = parseSubnet(subnetInput);
                 statusEl.textContent = `Found ${ips.length} IPs. Mode-based analysis (${concurrency} parallel)...`;
                 
-                document.getElementById('progress').style.display = 'block';
                 document.getElementById('progress').value = 0;
+                document.getElementById('modeBox').style.display = 'none';
+                document.getElementById('togglePanel').style.display = 'none';
+                document.getElementById('results').innerHTML = '';
                 
-                const candidates = await phase1Sweep(ips, concurrency);
+                await phase1Sweep(ips, concurrency);
                 
-                if (candidates.length === 0) {
-                    statusEl.textContent = `No candidates found (all near mode cluster)`;
-                    return;
-                }
-                
-                statusEl.textContent = `${candidates.length} candidates (4x faster than mode). Deep scan...`;
-                const results = await phase2Deepscan(candidates, concurrency);
-                
-                renderResults(results);
-                statusEl.textContent = `Complete! ${results.length} hosts analyzed using mode detection.`;
             } catch (error) {
                 statusEl.className = 'status error';
                 statusEl.textContent = `Error: ${error.message}`;
             } finally {
                 isScanning = false;
                 btn.disabled = false;
-                btn.textContent = 'Start Mode-Based Port Sweep';
-                document.getElementById('progress').style.display = 'none';
+                btn.textContent = 'Re-run Port 80 Sweep';
             }
         }
 
@@ -346,6 +305,7 @@
         document.getElementById('concurrency').addEventListener('input', function() {
             document.getElementById('concurrencyValue').textContent = this.value;
         });
+        document.getElementById('toggleBtn').addEventListener('click', toggleEligible);
 
         // URL params
         const urlParams = new URLSearchParams(window.location.search);
