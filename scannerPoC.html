@@ -23,13 +23,10 @@
         .host-ip { font-size: 24px; font-weight: 600; margin-bottom: 15px; color: #1a1a1a; }
         .initial-timing { font-size: 18px; font-weight: 500; color: #dc3545; font-family: monospace; margin-bottom: 10px; }
         .initial-timing.fast { color: #28a745; }
-        .initial-timing.open { color: #17a2b8; background: rgba(23,162,184,0.1); padding: 4px 8px; border-radius: 4px; }
         .port-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 15px; }
         .port-pill { padding: 8px 12px; border-radius: 20px; font-weight: 500; font-size: 14px; text-align: center; font-family: monospace; }
-        .port-pill.open { background: #17a2b8; color: white; }
         .port-pill.fast { background: linear-gradient(135deg, #28a745, #20c997); color: white; }
         .port-pill.slow { background: #6c757d; color: white; opacity: 0.7; }
-        .deep-scan-section { margin-top: 30px; padding-top: 20px; border-top: 2px solid #dee2e6; }
         .legend { display: flex; flex-wrap: wrap; gap: 20px; font-size: 14px; margin-top: 20px; }
         .legend-color { width: 20px; height: 20px; border-radius: 50%; }
         .stats { font-size: 14px; color: #666; margin-bottom: 10px; }
@@ -51,7 +48,7 @@
             </div>
             <div class="input-col">
                 <label for="initialTimeout">Timeout (ms):</label>
-                <input type="number" id="initialTimeout" value="5000" min="2000" max="15000">
+                <input type="number" id="initialTimeout" value="3000" min="1000" max="10000">
             </div>
         </div>
         <div class="concurrency-display">
@@ -68,75 +65,52 @@
     <div class="slider-container">
         <label>Threshold: </label>
         <input type="range" id="thresholdSlider" min="0" max="100" value="100">
-        <span class="slider-value" id="thresholdValue">5000ms</span>
-        <span>Max: <span id="maxThreshold">5000</span>ms</span>
+        <span class="slider-value" id="thresholdValue">3000ms</span>
+        <span>Max: <span id="maxThreshold">3000</span>ms</span>
     </div>
 
     <div id="phase1Results" class="results"></div>
     
     <div class="legend">
-        <div class="legend-item"><span class="legend-color" style="background: #28a745;"></span>Fast connect (<2s)</div>
-        <div class="legend-item"><span class="legend-color" style="background: #17a2b8;"></span>Port OPEN (WebSocket)</div>
-        <div class="legend-item"><span class="legend-color" style="background: linear-gradient(135deg, #ffc107, #fd7e14);"></span>Deep scanned</div>
+        <div class="legend-item"><span class="legend-color" style="background: #28a745;"></span>Fast connect (< threshold)</div>
+        <div class="legend-item"><span class="legend-color" style="background: #17a2b8;"></span>Deep scanned</div>
+        <div class="legend-item"><span class="legend-color" style="background: linear-gradient(135deg, #28a745, #20c997);"></span>Fast port (<2s)</div>
     </div>
 
     <script>
         const PORT_80 = 80;
         const WEB_PORTS = [443, 8443, 8000, 8006, 8080, 8008];
         let phase1Results = [];
-        let maxTimeout = 5000;
+        let maxTimeout = 3000;
         let isScanning = false;
 
-        // WebSocket port test with real-time display
+        // Simple HTTPS favicon timing
         async function testPort(ip, port, timeoutMs) {
-            return new Promise((resolve) => {
-                const start = performance.now();
-                const ws = new WebSocket(`wss://${ip}:${port}?probe=1`);
+            const start = performance.now();
+            try {
+                const url = `https://${ip}:${port}/favicon.ico`;
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
                 
-                let opened = false;
-                let errored = false;
-                
-                const timeoutId = setTimeout(() => {
-                    ws.close();
-                    resolve({
-                        time: Math.min(timeoutMs, Math.round(performance.now() - start)),
-                        status: 'timeout',
-                        success: false
-                    });
-                }, timeoutMs);
-                
-                ws.onopen = () => {
-                    opened = true;
-                    clearTimeout(timeoutId);
-                    ws.close();
-                    resolve({
-                        time: Math.round(performance.now() - start),
-                        status: 'open',
-                        success: true
-                    });
+                await fetch(url, {
+                    method: 'HEAD',
+                    signal: controller.signal,
+                    mode: 'no-cors',
+                    cache: 'no-cache'
+                });
+                clearTimeout(timeoutId);
+                return {
+                    time: Math.round(performance.now() - start),
+                    status: 'fast',
+                    success: true
                 };
-                
-                ws.onerror = () => {
-                    errored = true;
-                    clearTimeout(timeoutId);
-                    resolve({
-                        time: Math.round(performance.now() - start),
-                        status: 'error',
-                        success: false
-                    });
+            } catch (e) {
+                return {
+                    time: Math.min(timeoutMs, Math.round(performance.now() - start)),
+                    status: 'timeout',
+                    success: false
                 };
-                
-                ws.onclose = () => {
-                    if (!opened && !errored) {
-                        clearTimeout(timeoutId);
-                        resolve({
-                            time: Math.round(performance.now() - start),
-                            status: 'closed',
-                            success: false
-                        });
-                    }
-                };
-            });
+            }
         }
 
         function parseSubnet(cidr) {
@@ -177,7 +151,7 @@
             }
         }
 
-        // Phase 1: Show results IMMEDIATELY as they complete
+        // Phase 1: Stream results live
         async function phase1Sweep() {
             const subnetInput = document.getElementById('subnet').value.trim();
             const concurrency = parseInt(document.getElementById('concurrency').value);
@@ -204,20 +178,19 @@
                     const result = await testPort(ip, PORT_80, timeout);
                     semaphore.release();
                     
-                    // IMMEDIATE display - no waiting!
+                    // Live update
                     phase1Results.push({ ip, ...result });
                     phase1Results.sort((a, b) => a.time - b.time);
                     renderPhase1Results();
                     
                     progressEl.value = ((index + 1) / ips.length) * 100;
-                    statusEl.textContent = `${index + 1}/${ips.length} (${result.time}ms ${result.status})`;
+                    statusEl.textContent = `${index + 1}/${ips.length} (${result.time}ms)`;
                 });
 
                 await Promise.all(promises);
                 
-                const opens = phase1Results.filter(r => r.success).length;
                 const fasts = phase1Results.filter(r => r.time < maxTimeout * 0.5).length;
-                statusEl.innerHTML = `✓ Phase 1 complete! ${opens} OPEN + ${fasts} fast. <strong>Drag threshold</strong>`;
+                statusEl.innerHTML = `✓ Phase 1 complete! ${fasts} fast hosts. <strong>Drag threshold</strong>`;
                 document.getElementById('phase2Btn').disabled = false;
                 document.getElementById('thresholdSlider').max = 100;
                 document.getElementById('maxThreshold').textContent = maxTimeout;
@@ -236,15 +209,14 @@
             resultsEl.innerHTML = phase1Results.map(host => `
                 <div class="host-box hidden" data-time="${host.time}" data-ip="${host.ip}">
                     <div class="host-ip">${host.ip}</div>
-                    <a href="http://${host.ip}:80" target="_blank" class="initial-timing ${host.success ? 'open' : (host.time < 1500 ? 'fast' : '')}">
-                        Port 80: <strong>${host.time}ms</strong> 
-                        ${host.success ? '🟢 OPEN' : host.status === 'timeout' ? '⏰ TIMEOUT' : '❌ ' + host.status}
+                    <a href="http://${host.ip}:80/" target="_blank" class="initial-timing ${host.time < 1500 ? 'fast' : ''}">
+                        Port 80: <strong>${host.time}ms</strong> ${host.success ? '⚡' : '⏰'}
                     </a>
                 </div>
             `).join('');
         }
 
-        // Phase 2: Update boxes with port timings IMMEDIATELY
+        // Phase 2: Live port-by-port updates
         async function phase2Deepscan() {
             const visibleBoxes = document.querySelectorAll('.host-box.visible');
             if (visibleBoxes.length === 0) {
@@ -268,16 +240,15 @@
                 const promises = candidates.map(async (cand) => {
                     await semaphore.acquire();
                     try {
-                        const portTimes = { 80: { time: cand.time, success: cand.success, status: cand.status } };
+                        const portTimes = { 80: { time: cand.time, success: cand.success } };
                         
-                        // Test web ports sequentially for immediate display
+                        // Test each port and update immediately
                         for (const port of WEB_PORTS) {
                             const result = await testPort(cand.ip, port, maxTimeout);
                             portTimes[port] = result;
-                            
-                            // IMMEDIATE UI update
                             updateHostBox(cand.ip, portTimes);
-                            statusEl.textContent = `Phase 2: ${cand.ip}:${port} ${result.time}ms ${result.status}`;
+                            statusEl.textContent = `Phase 2: ${cand.ip}:${port} ${result.time}ms`;
+                            await new Promise(r => setTimeout(r, 50)); // Brief pause for smooth streaming
                         }
                         
                     } finally {
@@ -293,7 +264,6 @@
             }
         }
 
-        // Update single host box with new port data
         function updateHostBox(ip, portTimes) {
             const box = document.querySelector(`[data-ip="${ip}"]`);
             if (!box) return;
@@ -305,9 +275,8 @@
             
             WEB_PORTS.forEach(port => {
                 const result = portTimes[port];
-                const statusClass = result.success ? 'open' : 
-                                   (result.time < 2000 ? 'fast' : 'slow');
-                const icon = result.success ? '🟢' : result.time < 2000 ? '⚡' : '❌';
+                const statusClass = result.time < 2000 ? 'fast' : 'slow';
+                const icon = result.time < 2000 ? '⚡' : '⏰';
                 
                 const pill = document.createElement('div');
                 pill.className = `port-pill ${statusClass}`;
@@ -315,7 +284,6 @@
                 portGrid.appendChild(pill);
             });
             
-            // Replace port grid
             const existingGrid = box.querySelector('.port-grid');
             if (existingGrid) existingGrid.remove();
             box.appendChild(portGrid);
