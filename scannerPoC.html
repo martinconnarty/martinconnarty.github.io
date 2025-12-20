@@ -22,6 +22,7 @@
         .host-ip { font-size: 24px; font-weight: 600; margin-bottom: 15px; color: #1a1a1a; }
         .initial-timing { font-size: 18px; font-weight: 500; color: #dc3545; font-family: monospace; }
         .initial-timing.fast { color: #28a745; }
+        .initial-timing.open { color: #17a2b8; background: rgba(23,162,184,0.1); padding: 4px 8px; border-radius: 4px; }
         .deep-scan-section { margin-top: 30px; padding-top: 20px; border-top: 2px solid #dee2e6; }
         .deep-results { display: flex; flex-direction: column; gap: 20px; }
         .deep-host-box { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); border-left: 5px solid #28a745; }
@@ -30,6 +31,7 @@
         .pill.http { background: #007bff; color: white; }
         .pill.https { background: linear-gradient(135deg, #28a745, #20c997); color: white; }
         .pill.likely { background: linear-gradient(135deg, #ffc107, #fd7e14); color: white; box-shadow: 0 2px 8px rgba(255,193,7,0.4); }
+        .pill.open { background: #17a2b8; color: white; box-shadow: 0 2px 8px rgba(23,162,184,0.3); }
         .pill.down { background: #6c757d; color: white; opacity: 0.7; }
         .legend { display: flex; flex-wrap: wrap; gap: 20px; font-size: 14px; margin-top: 20px; }
         .legend-color { width: 20px; height: 20px; border-radius: 50%; }
@@ -79,8 +81,8 @@
     </div>
 
     <div class="legend">
-        <div class="legend-item"><span class="legend-color" style="background: #28a745;"></span>Visible candidate (fast port 80)</div>
-        <div class="legend-item"><span class="legend-color" style="background: linear-gradient(135deg, #28a745, #20c997);"></span>HTTPS likely open</div>
+        <div class="legend-item"><span class="legend-color" style="background: #28a745;"></span>Fast connect (<2s)</div>
+        <div class="legend-item"><span class="legend-color" style="background: #17a2b8;"></span>Port OPEN (WebSocket success)</div>
         <div class="legend-item"><span class="legend-color" style="background: linear-gradient(135deg, #ffc107, #fd7e14);"></span>Timing anomaly</div>
     </div>
 
@@ -88,35 +90,58 @@
         const DEFAULT_SUBNET = '192.168.68.0/24';
         const PORT_80 = 80;
         const WEB_PORTS = [443, 8443, 8000, 8006, 8080, 8008];
-        const BASELINE_PORTS = [123, 161, 179];
         let phase1Results = [];
         let maxTimeout = 5000;
         let isScanning = false;
 
-        // FIXED: WebSocket TCP connect timing (bypasses CORS timing blocks)
+        // FIXED: Detect ACTUAL WebSocket success vs failure
         async function testPort(ip, port, timeoutMs) {
             return new Promise((resolve) => {
                 const start = performance.now();
-                const ws = new WebSocket(`wss://${ip}:${port}`);
+                const ws = new WebSocket(`wss://${ip}:${port}?probe=1`);
+                
+                let opened = false;
+                let errored = false;
                 
                 const timeoutId = setTimeout(() => {
                     ws.close();
-                    resolve(Math.min(timeoutMs, Math.round(performance.now() - start)));
+                    resolve({
+                        time: Math.min(timeoutMs, Math.round(performance.now() - start)),
+                        status: 'timeout',
+                        success: false
+                    });
                 }, timeoutMs);
                 
                 ws.onopen = () => {
+                    opened = true;
                     clearTimeout(timeoutId);
                     ws.close();
-                    resolve(Math.round(performance.now() - start));
+                    resolve({
+                        time: Math.round(performance.now() - start),
+                        status: 'open',
+                        success: true
+                    });
                 };
                 
-                ws.onerror = () => {
+                ws.onerror = (event) => {
+                    errored = true;
                     clearTimeout(timeoutId);
-                    resolve(Math.min(timeoutMs, Math.round(performance.now() - start)));
+                    resolve({
+                        time: Math.round(performance.now() - start),
+                        status: 'error',
+                        success: false
+                    });
                 };
                 
                 ws.onclose = () => {
-                    clearTimeout(timeoutId);
+                    if (!opened && !errored) {
+                        clearTimeout(timeoutId);
+                        resolve({
+                            time: Math.round(performance.now() - start),
+                            status: 'closed',
+                            success: false
+                        });
+                    }
                 };
             });
         }
@@ -182,20 +207,25 @@
 
                 const promises = ips.map(async (ip, index) => {
                     await semaphore.acquire();
-                    const time80 = await testPort(ip, PORT_80, timeout);
+                    const result = await testPort(ip, PORT_80, timeout);
                     semaphore.release();
                     
-                    phase1Results.push({ ip, time80 });
+                    phase1Results.push({ ip, ...result });
                     progressEl.value = ((index + 1) / ips.length) * 100;
-                    statusEl.textContent = `Phase 1: ${index + 1}/${ips.length} (${time80}ms avg)`;
+                    
+                    const status = result.status === 'open' ? 'OPEN' : 
+                                  result.time < 1500 ? 'FAST' : 'SLOW';
+                    statusEl.textContent = `Phase 1: ${index + 1}/${ips.length} (${ip}: ${result.time}ms ${status})`;
                 });
 
                 await Promise.all(promises);
                 
-                phase1Results.sort((a, b) => a.time80 - b.time80);
+                phase1Results.sort((a, b) => a.time - b.time);
                 renderPhase1Results();
                 
-                statusEl.innerHTML = `✓ Phase 1 complete! ${phase1Results.filter(r => r.time80 < maxTimeout * 0.5).length} fast hosts found. <strong>Drag threshold slider</strong>`;
+                const opens = phase1Results.filter(r => r.success).length;
+                const fasts = phase1Results.filter(r => r.time < maxTimeout * 0.5).length;
+                statusEl.innerHTML = `✓ Phase 1 complete! ${opens} <strong>OPEN</strong> + ${fasts} fast hosts. Drag threshold!`;
                 document.getElementById('phase2Btn').disabled = false;
                 document.getElementById('thresholdSlider').max = 100;
                 document.getElementById('maxThreshold').textContent = maxTimeout;
@@ -212,10 +242,11 @@
         function renderPhase1Results() {
             const resultsEl = document.getElementById('phase1Results');
             resultsEl.innerHTML = phase1Results.map(host => `
-                <div class="host-box hidden" data-time="${host.time80}">
+                <div class="host-box hidden" data-time="${host.time}">
                     <div class="host-ip">${host.ip}</div>
-                    <div class="initial-timing ${host.time80 < 1500 ? 'fast' : ''}">
-                        Port 80: <strong>${host.time80}ms</strong>
+                    <div class="initial-timing ${host.success ? 'open' : (host.time < 1500 ? 'fast' : '')}">
+                        Port 80: <strong>${host.time}ms</strong> 
+                        ${host.success ? '🟢 OPEN' : host.status === 'timeout' ? '⏰ TIMEOUT' : '❌ ' + host.status}
                     </div>
                 </div>
             `).join('');
@@ -245,21 +276,20 @@
                 const promises = candidates.map(async (cand, index) => {
                     await semaphore.acquire();
                     try {
-                        const portTimes = { 80: cand.time80 };
+                        const portTimes = { 80: { time: cand.time, success: cand.success, status: cand.status } };
                         
-                        // Parallel test all other ports
                         const testPromises = WEB_PORTS.map(port => 
-                            testPort(cand.ip, port, maxTimeout).then(time => {
-                                portTimes[port] = time;
-                                return time;
+                            testPort(cand.ip, port, maxTimeout).then(result => {
+                                portTimes[port] = result;
+                                return result;
                             })
                         );
                         
                         await Promise.all(testPromises);
                         
-                        // Simple threshold: anything < 2s likely open
+                        // Consider BOTH fast connects AND actual opens as matches
                         const likelyOpen = Object.entries(portTimes)
-                            .filter(([p, t]) => Number(t) < 2000)
+                            .filter(([p, r]) => r.success || r.time < 2000)
                             .map(([p]) => Number(p));
 
                         deepResults.push({ ...cand, portTimes, likelyOpen });
@@ -281,20 +311,25 @@
         function renderDeepResults(results) {
             const deepEl = document.getElementById('deepResults');
             deepEl.innerHTML = results.map(host => {
-                const pills = [`<a href="http://${host.ip}" class="pill http" target="_blank">HTTP:80 (${host.time80}ms)</a>`];
+                const pills = [
+                    `<a href="http://${host.ip}" class="pill http" target="_blank">HTTP:80 ${host.time}ms ${host.success ? '🟢' : ''}</a>`
+                ];
                 
                 WEB_PORTS.forEach(port => {
-                    const time = host.portTimes[port] || maxTimeout;
+                    const result = host.portTimes[port];
+                    const time = result.time;
                     const isLikely = host.likelyOpen.includes(port);
                     const protocol = port === 443 ? `https://${host.ip}` : `https://${host.ip}:${port}`;
-                    const status = isLikely ? 'https' : 'down';
-                    pills.push(`<a href="${protocol}" class="pill ${status}" target="_blank">${port} (${time}ms)</a>`);
+                    const status = result.success ? 'open' : 
+                                  (time < 2000 ? 'https' : 'down');
+                    const icon = result.success ? '🟢' : time < 2000 ? '⚡' : '❌';
+                    pills.push(`<a href="${protocol}" class="pill ${status}" target="_blank">${port} ${time}ms ${icon}</a>`);
                 });
 
                 return `
                     <div class="deep-host-box">
                         <div class="host-ip">${host.ip}</div>
-                        <div class="stats">Port 80: ${host.time80}ms</div>
+                        <div class="stats">Port 80: ${host.time}ms ${host.success ? '🟢 OPEN' : host.status}</div>
                         <div class="pills">${pills.join('')}</div>
                     </div>
                 `;
@@ -326,7 +361,6 @@
             if (phase1Results.length > 0) updateThreshold();
         });
 
-        // URL params
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('subnet')) {
             document.getElementById('subnet').value = urlParams.get('subnet');
