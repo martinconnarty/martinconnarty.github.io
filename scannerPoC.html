@@ -88,7 +88,7 @@
         }
 
         // Improved port timing test - uses image fetch for better cross-origin timing
-        async function testPort(ip, port, protocol = 'http') {
+        async function testPort(ip, port, protocol = 'https') {
             const start = performance.now();
             try {
                 // Use 1x1 pixel fetch - more reliable than HEAD for timing
