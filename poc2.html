@@ -28,10 +28,10 @@
 </head>
 <body>
     <h1>HTTPS Subnet Image Timing Checker</h1>
-    <p>Enter subnet (e.g., 192.168.1.0/24), ports. Fast hosts (<500ms) appear live as clickable links instantly.</p>
+    <p>Enter subnet (e.g., 192.168.1.0/24), ports. Fast hosts (<500ms) appear live as clickable HTTPS links instantly. All tests use HTTPS protocol.</p>
     
     <input type="text" id="subnet" placeholder="192.168.1.0/24" value="192.168.1.0/24">
-    <textarea id="ports" placeholder="443,8443,80">443</textarea>
+    <textarea id="ports" placeholder="443,8443">443</textarea>
     <select id="concurrency">
         <option value="8">8 concurrent</option>
         <option value="16" selected>16 concurrent</option>
@@ -89,14 +89,9 @@
             return ips;
         }
 
-        function getProtocol(port) {
-            return parseInt(port) === 80 ? 'http' : 'https';
-        }
-
         async function runTests() {
             const subnet = document.getElementById('subnet').value.trim();
             const portsText = document.getElementById('ports').value.trim();
-            const concurrency = parseInt(document.getElementById('concurrency').value);
             const ports = portsText.split(',').map(p => p.trim()).filter(p => p);
 
             if (!subnet || ports.length === 0) {
@@ -115,10 +110,10 @@
             document.getElementById('progressText').dataset.total = totalTests;
             document.getElementById('liveList').innerHTML = '';
             document.getElementById('liveCount').textContent = '0';
-            document.getElementById('results').innerHTML = `<h3>Scanning ${ips.length} IPs x ${ports.length} ports = ${totalTests} tests...`;
+            document.getElementById('results').innerHTML = `<h3>Scanning ${ips.length} IPs x ${ports.length} ports = ${totalTests} HTTPS tests...`;
             document.getElementById('stats').style.display = 'none';
 
-            // Fire all tests immediately without semaphore - let browser handle concurrency naturally
+            // Fire all tests immediately - browser handles natural concurrency
             const promises = [];
             for (const ip of ips) {
                 for (const port of ports) {
@@ -140,7 +135,8 @@
         function testImage(host, port) {
             return new Promise((resolve) => {
                 const start = performance.now();
-                const target = `${getProtocol(port)}://${host}:${port}/favicon.ico?${Date.now()}`;
+                // ALWAYS use HTTPS protocol for all tests
+                const target = `https://${host}:${port}/favicon.ico?${Date.now()}`;
                 const img = new Image();
                 
                 img.onload = () => {
@@ -183,8 +179,8 @@
             if (liveHosts.has(key)) return;
             
             liveHosts.add(key);
-            const protocol = getProtocol(port);
-            const url = `${protocol}://${host}:${port}/`;
+            // ALWAYS use HTTPS for clickable links
+            const url = `https://${host}:${port}/`;
             const liveHtml = `
                 <div class="live-host">
                     <a href="${url}" target="_blank" class="live-link">${host}:${port}</a> 
@@ -212,8 +208,8 @@
 
             let html = `
                 <div class="stats">
-                    <div class="stat success">${fastHits.length} fast hits (<500ms)</div>
-                    <div class="stat">${liveIPs.length}/${ipCount} IPs with fast services</div>
+                    <div class="stat success">${fastHits.length} fast HTTPS hits (<500ms)</div>
+                    <div class="stat">${liveIPs.length}/${ipCount} IPs with fast HTTPS services</div>
                     <div class="stat">${fastHits.length > 0 ? `${(fastHits.reduce((s, r) => s + r.time, 0) / fastHits.length).toFixed(0)}ms avg` : 'N/A'}</div>
                 </div>`;
 
