@@ -3,17 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fast CIDR HTTPS Port Scanner</title>
+    <title>CIDR HTTPS Port Scanner - FAST</title>
     <style>
         body { font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
         input { width: 250px; padding: 8px; margin: 10px 5px; }
-        button { padding: 10px 20px; background: #007bff; color: white; border: none; cursor: pointer; margin: 5px; }
+        button { padding: 10px 20px; background: #007bff; color: white; border: none; cursor: pointer; }
         button:hover { background: #0056b3; }
-        .toggle-btn { background: #6c757d; padding: 8px 16px; font-size: 14px; }
-        .toggle-btn.active { background: #28a745; }
         .ip-section { margin: 30px 0; border: 2px solid #007bff; padding: 20px; }
-        .ip-section.hidden { display: none; }
-        .ip-section.empty { border-color: #dc3545; background: #f8d7da; }
         .port-section { margin: 15px 0; border: 1px solid #ddd; padding: 10px; }
         table { width: 100%; border-collapse: collapse; margin: 10px 0; }
         th, td { padding: 8px; text-align: left; border: 1px solid #ddd; }
@@ -22,25 +18,25 @@
         .fast-row:hover { background: #d4edda; }
         a { text-decoration: none; color: inherit; }
         .likely-up { font-weight: bold; color: #28a745; }
+        .likely-down { font-weight: bold; color: #dc3545; }
+        .websocket-only { background: #fff3cd; border-left: 4px solid #ffc107; }
     </style>
 </head>
 <body>
-    <h1>Fast CIDR HTTPS Multi-Port Timing Scanner</h1>
-    <p>Enter CIDR and ports. Toggle "Show All Results" to see IPs with no fast services.</p>
+    <h1>FAST CIDR HTTPS Multi-Port Timing Scanner</h1>
+    <p>Enter CIDR (e.g., 192.168.1.0/24) and ports. 500ms timeouts, parallel ports, ~2-3x faster.</p>
     
-    <input type="text" id="cidr" placeholder="192.168.68.0/24" value="192.168.1.0/24">
-    <input type="text" id="ports" placeholder="80,443,8006" value="80,443,8443,8080">
+    <input type="text" id="cidr" placeholder="192.168.1.0/24" value="192.168.1.0/24">
+    <input type="text" id="ports" placeholder="80,443,8443,8080" value="80,443,8443,8080">
     <button onclick="runCidrScanner()">Scan CIDR</button>
-    <button id="toggleAll" class="toggle-btn" onclick="toggleAllResults()">Show All Results</button>
     
     <div id="results"></div>
 
     <script>
-        const TIMEOUT = 1000;
+        const TIMEOUT = 500;      // ↓ from 1000ms
         const FAST_THRESHOLD = 200;
-        let allScanData = [];  // Store ALL scan results
-        let showAll = false;
 
+        // Parse CIDR to IP array (synchronous)
         function parseCidr(cidr) {
             const [network, bits] = cidr.split('/');
             const [a, b, c, d] = network.split('.').map(Number);
@@ -60,17 +56,19 @@
             return ips;
         }
 
+        // FAST portScanner - parallel ports (4 at a time)
         async function portScanner(ip, portsString) {
             const ports = portsString.split(',').map(p => p.trim()).filter(p => p);
             const allResults = [];
             
+            // Parallel ports, 4 at a time (browser connection limit)
             for (let i = 0; i < ports.length; i += 4) {
                 const chunk = ports.slice(i, i + 4);
                 const chunkResults = await Promise.allSettled(
                     chunk.map(port => testPort(ip, parseInt(port)))
                 );
                 allResults.push(...chunkResults);
-                await new Promise(r => setTimeout(r, 50));
+                await new Promise(r => setTimeout(r, 50)); // Tiny yield
             }
             return allResults;
         }
@@ -79,8 +77,9 @@
             const target = `https://${host}:${port}`;
             const tests = await Promise.allSettled([
                 testFetch(target),
-                testTCP(target),
-                testXHR(target)
+                testTCP(target),      // Replaced slow Image
+                testXHR(target),
+                testWebSocket(host, port)
             ]);
             return { port, host, tests };
         }
@@ -88,8 +87,9 @@
         async function testFetch(target) {
             const start = performance.now();
             try {
+                // Native AbortSignal.timeout() - fastest
                 const response = await fetch(target, {
-                    method: 'GET',
+                    method: 'HEAD',
                     signal: AbortSignal.timeout(TIMEOUT),
                     cache: 'no-cache'
                 });
@@ -99,13 +99,14 @@
             }
         }
 
+        // FAST TCP-style connect (replaces slow Image)
         async function testTCP(target) {
             const start = performance.now();
             try {
-                await fetch(target, {
+                const response = await fetch(target, {
                     method: 'HEAD',
                     signal: AbortSignal.timeout(TIMEOUT),
-                    mode: 'no-cors'
+                    mode: 'no-cors'  // Faster, no CORS
                 });
                 return { name: 'TCP Connect', time: performance.now() - start, success: true };
             } catch {
@@ -118,7 +119,7 @@
                 const start = performance.now();
                 const xhr = new XMLHttpRequest();
                 xhr.timeout = TIMEOUT;
-                xhr.open('GET', target, true);
+                xhr.open('HEAD', target, true);
                 xhr.onreadystatechange = () => {
                     if (xhr.readyState === 4) {
                         const end = performance.now();
@@ -142,112 +143,108 @@
             });
         }
 
+        async function testWebSocket(host, port) {
+            return new Promise((resolve) => {
+                const start = performance.now();
+                try {
+                    const ws = new WebSocket(`wss://${host}:${port}`);
+                    ws.onopen = () => {
+                        const end = performance.now();
+                        ws.close();
+                        resolve({ name: 'WebSocket', time: end - start, success: true });
+                    };
+                    ws.onerror = () => {
+                        const end = performance.now();
+                        resolve({ name: 'WebSocket', time: end - start, error: 'Failed', success: false });
+                    };
+                    setTimeout(() => {
+                        const end = performance.now();
+                        resolve({ name: 'WebSocket', time: end - start, error: 'Timeout', success: false });
+                    }, TIMEOUT);
+                } catch (e) {
+                    const end = performance.now();
+                    resolve({ name: 'WebSocket', time: end - start, error: e.message, success: false });
+                }
+            });
+        }
+
         function getLinkUrl(host, port) {
             return port === 80 ? `http://${host}:${port}/` : `https://${host}:${port}/`;
         }
 
-        function renderAll() {
-            const resultsDiv = document.getElementById('results');
-            let html = `<h3>${showAll ? 'ALL Results' : 'Fast Results Only'} 
-                <span style="color:#666">(${allScanData.filter(d => d.hasFast).length} fast, 
-                ${allScanData.length} total IPs)</span></h3>`;
+        function displayIpResults(ip, allResults) {
+            const fastTestsAll = [];
+            let websocketOnly = true;
             
-            allScanData.forEach(data => {
-                if (showAll || data.hasFast) {
-                    html += data.html;
+            allResults.forEach(portData => {
+                if (portData.status === 'fulfilled') {
+                    const data = portData.value;
+                    data.tests.forEach(testResult => {
+                        if (testResult.status === 'fulfilled') {
+                            const t = testResult.value;
+                            if (t.time < FAST_THRESHOLD) {
+                                t.success = true;
+                                fastTestsAll.push({...t, port: data.port, host: data.host});
+                                if (t.name !== 'WebSocket') websocketOnly = false;
+                            }
+                        }
+                    });
                 }
             });
+
+            let html = `<div class="ip-section">
+                <h3>${ip}</h3>`;
             
-            resultsDiv.innerHTML = html;
+            if (fastTestsAll.length === 0) {
+                html += '<p>No fast tests (&lt;200ms) found. LIKELY DOWN.</p>';
+            } else {
+                fastTestsAll.forEach(t => {
+                    const wsOnlyClass = (t.name === 'WebSocket' && websocketOnly) ? 'websocket-only' : '';
+                    html += `<div class="port-section ${wsOnlyClass}">
+                        <table>
+                            <tr class="fast-row">
+                                <td><a href="${getLinkUrl(t.host || ip, t.port)}" target="_blank">${t.name} (Port ${t.port})</a></td>
+                                <td>${t.time.toFixed(0)}ms</td>
+                                <td class="success">SUCCESS</td>
+                            </tr>
+                        </table>
+                    </div>`;
+                });
+                
+                const status = websocketOnly ? 'LIKELY DOWN (WebSocket only)' : 'LIKELY UP';
+                html += `<div class="result ${websocketOnly ? '' : 'success'}">
+                    <span class="${websocketOnly ? 'likely-down' : 'likely-up'}">${status}</span> 
+                    (${fastTestsAll.length} fast tests)
+                </div>`;
+            }
+            
+            html += '</div>';
+            return html;
         }
 
-        function toggleAllResults() {
-            showAll = !showAll;
-            const btn = document.getElementById('toggleAll');
-            btn.textContent = showAll ? 'Hide All Results' : 'Show All Results';
-            btn.classList.toggle('active', showAll);
-            renderAll();
-        }
-
+        // Sequential CIDR scanner - FAST
         async function runCidrScanner() {
             const cidr = document.getElementById('cidr').value.trim();
             const ports = document.getElementById('ports').value.trim();
             const resultsDiv = document.getElementById('results');
-            resultsDiv.innerHTML = '<h3>Scanning CIDR...</h3>';
-            
-            showAll = false;
-            document.getElementById('toggleAll').textContent = 'Show All Results';
-            document.getElementById('toggleAll').classList.remove('active');
+            resultsDiv.innerHTML = '<h3>Scanning CIDR FAST (500ms timeouts, parallel ports)...<h3>';
 
             const ips = parseCidr(cidr);
-            allScanData = [];
-            let fastCount = 0;
+            let html = '';
             
-            for (let i = 0; i < ips.length; i++) {
-                const ip = ips[i];
-                const results = await portScanner(ip, ports);
-                
-                // Collect ALL test results for this IP
-                const allTests = [];
-                let hasFast = false;
-                
-                results.forEach(portData => {
-                    if (portData.status === 'fulfilled') {
-                        const data = portData.value;
-                        data.tests.forEach(testResult => {
-                            if (testResult.status === 'fulfilled') {
-                                const t = testResult.value;
-                                allTests.push({...t, port: data.port, host: data.host});
-                                if (t.time < FAST_THRESHOLD) hasFast = true;
-                            }
-                        });
-                    }
-                });
-
-                // Generate HTML
-                let html = `<div class="ip-section ${!hasFast ? 'empty' : ''}" data-ip="${ip}">
-                    <h3>${ip} ${!hasFast ? '(No fast tests <200ms)' : ''}</h3>`;
-                
-                if (hasFast) {
-                    // Show only fast tests
-                    allTests.filter(t => t.time < FAST_THRESHOLD).forEach(t => {
-                        html += `<div class="port-section">
-                            <table><tr class="fast-row">
-                                <td><a href="${getLinkUrl(t.host || ip, t.port)}" target="_blank">${t.name} (Port ${t.port})</a></td>
-                                <td>${t.time.toFixed(0)}ms</td>
-                                <td class="success">SUCCESS</td>
-                            </tr></table>
-                        </div>`;
-                    });
-                    html += `<div class="result success">
-                        <span class="likely-up">LIKELY UP</span> (${allTests.filter(t => t.time < FAST_THRESHOLD).length} fast tests)
-                    </div>`;
-                } else {
-                    // Show all test timings for empty IPs
-                    html += '<p>All test timings:</p>';
-                    allTests.forEach(t => {
-                        html += `<div class="port-section">
-                            <table><tr>
-                                <td>${t.name} (Port ${t.port})</td>
-                                <td>${t.time.toFixed(0)}ms</td>
-                                <td>${t.success ? 'SUCCESS' : 'FAILED'}</td>
-                            </tr></table>
-                        </div>`;
-                    });
+            for (const ip of ips) {
+                try {
+                    const results = await portScanner(ip, ports);
+                    html += displayIpResults(ip, results);
+                    const progress = ips.indexOf(ip) + 1;
+                    resultsDiv.innerHTML = `<h3>Scanning ${ip}... (${progress}/${ips.length})</h3>` + html;
+                    await new Promise(resolve => setTimeout(resolve, 200)); // Reduced pause
+                } catch (e) {
+                    html += `<div class="ip-section"><h3>${ip}</h3><p>Scan failed</p></div>`;
                 }
-                
-                html += '</div>';
-                
-                allScanData.push({ ip, html, hasFast });
-                if (hasFast) fastCount++;
-                
-                // Show progress with current results
-                renderAll();
-                resultsDiv.innerHTML = `<h3>Scanning ${ip}... (${i+1}/${ips.length}) | ${fastCount} fast IPs</h3>` + 
-                    resultsDiv.innerHTML.replace(/^<h3>.*<\/h3>/, '');
-                
-                await new Promise(resolve => setTimeout(resolve, 200));
             }
+            
+            resultsDiv.innerHTML = `<h3>Complete: ${ips.length} IPs scanned FAST</h3>` + html;
         }
     </script>
 </body>
