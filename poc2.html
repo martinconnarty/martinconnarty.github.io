@@ -19,9 +19,6 @@
         .live-host { background: #d4edda; padding: 10px; margin: 5px 0; border-radius: 5px; border-left: 4px solid #28a745; }
         .live-link { color: #007bff; text-decoration: none; font-weight: bold; font-size: 1.1em; }
         .live-link:hover { text-decoration: underline; }
-        table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 0.9em; }
-        th, td { padding: 6px; text-align: left; border: 1px solid #ddd; }
-        th { background: #f1f1f1; }
         .progress { width: 100%; height: 20px; background: #e9ecef; border-radius: 10px; overflow: hidden; }
         .progress-bar { height: 100%; background: #007bff; width: 0%; transition: width 0.3s; }
         .stats { display: flex; gap: 20px; margin: 10px 0; }
@@ -61,6 +58,8 @@
         const FAST_THRESHOLD = 500; // 0.5 seconds
         let allResults = [];
         let liveHosts = new Set();
+        let totalTests = 0;
+        let completedTests = 0;
 
         function parseSubnet(subnet) {
             const [network, bits] = subnet.split('/');
@@ -109,20 +108,21 @@
             const ips = generateIPs(start, end);
             allResults = [];
             liveHosts.clear();
+            totalTests = ips.length * ports.length;
+            completedTests = 0;
             
             document.getElementById('progress').style.display = 'block';
-            document.getElementById('progressText').dataset.total = ips.length * ports.length;
+            document.getElementById('progressText').dataset.total = totalTests;
             document.getElementById('liveList').innerHTML = '';
             document.getElementById('liveCount').textContent = '0';
-            document.getElementById('results').innerHTML = `<h3>Scanning ${ips.length} IPs x ${ports.length} ports...`;
+            document.getElementById('results').innerHTML = `<h3>Scanning ${ips.length} IPs x ${ports.length} ports = ${totalTests} tests...`;
             document.getElementById('stats').style.display = 'none';
 
-            const semaphore = createSemaphore(concurrency);
+            // Fire all tests immediately without semaphore - let browser handle concurrency naturally
             const promises = [];
-
             for (const ip of ips) {
                 for (const port of ports) {
-                    promises.push(semaphore.run(() => testImage(ip, port)));
+                    promises.push(testImage(ip, port));
                 }
             }
 
@@ -130,51 +130,28 @@
             displayFinalResults(ips.length, ports.length);
         }
 
-        function createSemaphore(maxConcurrent) {
-            let active = 0;
-            const queue = [];
-            return {
-                async run(task) {
-                    return new Promise((resolve) => {
-                        queue.push(() => {
-                            active++;
-                            updateProgress();
-                            task().finally(() => {
-                                active--;
-                                updateProgress();
-                                const next = queue.shift();
-                                if (next) next();
-                            }).then(resolve);
-                        });
-                        if (active < maxConcurrent) {
-                            const next = queue.shift();
-                            if (next) next();
-                        }
-                    });
-                }
-            };
-        }
-
         function updateProgress() {
-            const total = allResults.length;
-            const maxTotal = parseInt(document.getElementById('progressText').dataset.total);
-            const percent = (total / maxTotal) * 100;
+            completedTests++;
+            const percent = (completedTests / totalTests) * 100;
             document.getElementById('progressBar').style.width = `${percent}%`;
-            document.getElementById('progressText').textContent = `${total}/${maxTotal} (${percent.toFixed(0)}%)`;
+            document.getElementById('progressText').textContent = `${completedTests}/${totalTests} (${percent.toFixed(0)}%)`;
         }
 
-        async function testImage(host, port) {
+        function testImage(host, port) {
             return new Promise((resolve) => {
                 const start = performance.now();
-                const target = `https://${host}:${port}/favicon.ico?${Date.now()}`;
+                const target = `${getProtocol(port)}://${host}:${port}/favicon.ico?${Date.now()}`;
                 const img = new Image();
                 
                 img.onload = () => {
                     const end = performance.now();
-                    const result = { host, port, time: end - start, success: true, target };
+                    const time = end - start;
+                    const result = { host, port, time, success: true, target };
                     allResults.push(result);
-                    if (result.time < FAST_THRESHOLD) {
-                        addLiveHost(host, port, result.time);
+                    updateProgress();
+                    
+                    if (time < FAST_THRESHOLD) {
+                        addLiveHost(host, port, time);
                     }
                     resolve(result);
                 };
@@ -183,6 +160,7 @@
                     const end = performance.now();
                     const result = { host, port, time: end - start, success: false, target, error: 'Failed' };
                     allResults.push(result);
+                    updateProgress();
                     resolve(result);
                 };
                 
@@ -193,6 +171,7 @@
                         const end = performance.now();
                         const result = { host, port, time: end - start, success: false, target, error: 'Timeout' };
                         allResults.push(result);
+                        updateProgress();
                         resolve(result);
                     }
                 }, TIMEOUT);
@@ -223,7 +202,7 @@
             const byIP = {};
             allResults.forEach(r => {
                 if (!byIP[r.host]) byIP[r.host] = { fast: 0, total: 0 };
-                byIP[r.host].total += ports.length;
+                byIP[r.host].total++;
                 if (r.success && r.time < FAST_THRESHOLD) byIP[r.host].fast++;
             });
             
