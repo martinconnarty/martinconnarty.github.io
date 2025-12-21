@@ -15,14 +15,14 @@
         button:disabled { background: #6c757d; cursor: not-allowed; }
         button:hover:not(:disabled) { background: #0056b3; }
         .status { margin-top: 10px; padding: 10px; border-radius: 6px; background: #d4edda; border: 1px solid #c3e6cb; }
-        .results { display: flex; flex-direction: column; gap: 15px; margin-top: 20px; }
+        .results { display: flex; flex-direction: column; gap: 15px; margin-top: 20px; max-height: 60vh; overflow-y: auto; }
         .host-box { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); border-left: 5px solid #007bff; transition: all 0.3s; }
         .host-box.visible { border-left-color: #28a745; }
         .host-box.hidden { display: none; }
         .host-box.deep-scanned { border-left-color: #17a2b8 !important; }
         .host-ip { font-size: 24px; font-weight: 600; margin-bottom: 15px; color: #1a1a1a; }
         .initial-timing { font-size: 18px; font-weight: 500; color: #dc3545; font-family: monospace; margin-bottom: 10px; text-decoration: none; display: block; }
-        .initial-timing.live { color: #28a745; background: rgba(40,167,69,0.1); padding: 4px 8px; border-radius: 4px; }
+        .initial-timing.live { color: #28a745; }
         .port-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 15px; }
         .port-pill { padding: 8px 12px; border-radius: 20px; font-weight: 500; font-size: 14px; text-align: center; font-family: monospace; }
         .port-pill.live { background: linear-gradient(135deg, #28a745, #20c997); color: white; }
@@ -52,8 +52,8 @@
         </div>
         <div class="concurrency-display">
             <label for="concurrency">Concurrency:</label>
-            <input type="range" id="concurrency" min="5" max="30" value="15">
-            <span id="concurrencyValue">15</span>
+            <input type="range" id="concurrency" min="5" max="50" value="20">
+            <span id="concurrencyValue">20</span>
         </div>
         <button id="phase1Btn">Phase 1: Port 80 Sweep</button>
         <button id="phase2Btn" disabled>Phase 2: Deep Scan Visible</button>
@@ -82,44 +82,49 @@
         let phase1Results = [];
         let maxTimeout = 2000;
         let isScanning = false;
+        const LIVE_THRESHOLD = 500; // ms - fast error = live host
 
-        // PERFECT TIMING: Catch FAST ERROR (live) vs SLOW TIMEOUT (dead)
-        async function testPort(ip, port, timeoutMs) {
-            const url = `https://${ip}:${port}/favicon.ico?t=${Date.now()}`;
-            const start = performance.now();
-
+        // COMPLETE rethink: Abort after 2s, catch sub-500ms errors = LIVE
+        function testPort(ip, port) {
             return new Promise((resolve) => {
+                const start = performance.now();
+                const url = `https://${ip}:${port}/favicon.ico?t=${Date.now()}`;
                 const img = new Image();
-                let aborted = false;
-                
+                let completed = false;
+
+                // Aggressive 2s timeout
                 const timeoutId = setTimeout(() => {
-                    aborted = true;
-                    const elapsed = Math.round(performance.now() - start);
-                    resolve({
-                        time: elapsed,
-                        status: 'timeout',  // SLOW = dead
-                        live: false
-                    });
-                }, timeoutMs);
+                    if (!completed) {
+                        completed = true;
+                        resolve({
+                            time: Math.round(maxTimeout),
+                            status: 'timeout',
+                            isLive: false
+                        });
+                    }
+                }, maxTimeout);
 
                 img.onload = () => {
-                    clearTimeout(timeoutId);
-                    const elapsed = Math.round(performance.now() - start);
-                    resolve({
-                        time: elapsed,
-                        status: 'load',     // Rare success
-                        live: true
-                    });
+                    if (!completed) {
+                        completed = true;
+                        clearTimeout(timeoutId);
+                        resolve({
+                            time: Math.round(performance.now() - start),
+                            status: 'loaded',
+                            isLive: true
+                        });
+                    }
                 };
 
                 img.onerror = () => {
-                    if (!aborted) {
+                    if (!completed) {
+                        completed = true;
+                        clearTimeout(timeoutId);
                         const elapsed = Math.round(performance.now() - start);
-                        // FAST ERROR = LIVE host/port (connection made, rejected favicon)
                         resolve({
                             time: elapsed,
                             status: 'error',
-                            live: elapsed < 500  // <500ms = definitely live
+                            isLive: elapsed < LIVE_THRESHOLD // FAST error = LIVE host
                         });
                     }
                 };
@@ -142,35 +147,46 @@
             return ips;
         }
 
-        class Semaphore {
-            constructor(concurrency) {
+        // BATCHED semaphore - processes in waves for smoother UI
+        class BatchedSemaphore {
+            constructor(concurrency, batchSize = 10) {
                 this.concurrency = concurrency;
+                this.batchSize = batchSize;
                 this.queue = [];
                 this.active = 0;
+                this.currentBatch = 0;
             }
+            
             async acquire() {
                 return new Promise(resolve => {
                     this.queue.push(resolve);
-                    this._processQueue();
+                    this._processBatch();
                 });
             }
+            
             release() {
                 this.active--;
-                this._processQueue();
+                this._processBatch();
             }
-            _processQueue() {
-                while (this.active < this.concurrency && this.queue.length > 0) {
-                    this.active++;
-                    this.queue.shift()();
+            
+            _processBatch() {
+                if (this.active >= this.concurrency || this.queue.length === 0) return;
+                
+                const batchEnd = Math.min(this.currentBatch + this.batchSize, this.queue.length);
+                for (let i = this.currentBatch; i < batchEnd; i++) {
+                    if (this.active < this.concurrency) {
+                        this.active++;
+                        this.queue.shift()();
+                    }
                 }
+                this.currentBatch = batchEnd;
             }
         }
 
         async function phase1Sweep() {
             const subnetInput = document.getElementById('subnet').value.trim();
             const concurrency = parseInt(document.getElementById('concurrency').value);
-            const timeout = parseInt(document.getElementById('initialTimeout').value);
-            maxTimeout = timeout;
+            maxTimeout = parseInt(document.getElementById('initialTimeout').value);
 
             const btn = document.getElementById('phase1Btn');
             const statusEl = document.getElementById('status');
@@ -178,32 +194,32 @@
 
             isScanning = true;
             btn.disabled = true;
-            statusEl.textContent = `Phase 1: Streaming port 80 results...`;
+            statusEl.textContent = `Phase 1: Streaming port 80 (${concurrency}x)...`;
             progressEl.style.display = 'block';
             progressEl.value = 0;
 
             try {
                 const ips = parseSubnet(subnetInput);
-                const semaphore = new Semaphore(concurrency);
+                const semaphore = new BatchedSemaphore(concurrency);
                 phase1Results = [];
 
                 const promises = ips.map(async (ip, index) => {
                     await semaphore.acquire();
-                    const result = await testPort(ip, PORT_80, timeout);
+                    const result = await testPort(ip, PORT_80);
                     semaphore.release();
                     
+                    // IMMEDIATE live update
                     phase1Results.push({ ip, ...result });
                     phase1Results.sort((a, b) => a.time - b.time);
                     renderPhase1Results();
                     
                     progressEl.value = ((index + 1) / ips.length) * 100;
-                    const label = result.live ? 'LIVE' : result.time < 1000 ? 'FAST' : 'DEAD';
-                    statusEl.textContent = `${index + 1}/${ips.length} (${result.time}ms ${label})`;
+                    statusEl.textContent = `${index + 1}/${ips.length} (${result.time}ms ${result.isLive ? 'LIVE' : 'DEAD'})`;
                 });
 
                 await Promise.all(promises);
                 
-                const lives = phase1Results.filter(r => r.live).length;
+                const lives = phase1Results.filter(r => r.isLive).length;
                 statusEl.innerHTML = `✓ Phase 1 complete! ${lives} LIVE hosts. <strong>Drag threshold</strong>`;
                 document.getElementById('phase2Btn').disabled = false;
                 document.getElementById('thresholdSlider').max = 100;
@@ -223,8 +239,8 @@
             resultsEl.innerHTML = phase1Results.map(host => `
                 <div class="host-box hidden" data-time="${host.time}" data-ip="${host.ip}">
                     <div class="host-ip">${host.ip}</div>
-                    <a href="http://${host.ip}:80/" target="_blank" class="initial-timing ${host.live ? 'live' : ''}">
-                        Port 80: <strong>${host.time}ms</strong> ${host.live ? '🟢 LIVE' : host.status}
+                    <a href="http://${host.ip}:80/" target="_blank" class="initial-timing ${host.isLive ? 'live' : ''}">
+                        Port 80: <strong>${host.time}ms</strong> ${host.isLive ? '🟢 LIVE' : '⏰ DEAD'}
                     </a>
                 </div>
             `).join('');
@@ -243,7 +259,7 @@
             });
 
             const concurrency = parseInt(document.getElementById('concurrency').value);
-            const semaphore = new Semaphore(concurrency);
+            const semaphore = new BatchedSemaphore(concurrency);
 
             document.getElementById('phase2Btn').disabled = true;
             const statusEl = document.getElementById('status');
@@ -253,14 +269,14 @@
                 const promises = candidates.map(async (cand) => {
                     await semaphore.acquire();
                     try {
-                        const portTimes = { 80: { time: cand.time, live: cand.live } };
+                        const portTimes = { 80: { time: cand.time, isLive: cand.isLive } };
                         
                         for (const port of WEB_PORTS) {
-                            const result = await testPort(cand.ip, port, maxTimeout);
+                            const result = await testPort(cand.ip, port);
                             portTimes[port] = result;
                             updateHostBox(cand.ip, portTimes);
-                            statusEl.textContent = `Phase 2: ${cand.ip}:${port} ${result.time}ms ${result.live ? 'LIVE' : 'dead'}`;
-                            await new Promise(r => setTimeout(r, 50));
+                            statusEl.textContent = `Phase 2: ${cand.ip}:${port} ${result.time}ms ${result.isLive ? 'LIVE' : 'DEAD'}`;
+                            await new Promise(r => setTimeout(r, 30)); // Smooth streaming
                         }
                         
                     } finally {
@@ -287,8 +303,8 @@
             
             WEB_PORTS.forEach(port => {
                 const result = portTimes[port];
-                const statusClass = result.live ? 'live' : 'dead';
-                const icon = result.live ? '🟢' : '⚫';
+                const statusClass = result.isLive ? 'live' : 'dead';
+                const icon = result.isLive ? '🟢' : '⏰';
                 
                 const pill = document.createElement('div');
                 pill.className = `port-pill ${statusClass}`;
