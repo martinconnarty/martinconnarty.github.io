@@ -5,141 +5,84 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HTTPS Subnet Image Timing Checker</title>
     <style>
-        body { font-family: Arial, sans-serif; max-width: 1000px; margin: 0 auto; padding: 20px; }
-        input, textarea, select { padding: 8px; margin: 5px; }
-        input[type="text"] { width: 200px; }
+        body { font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; }
+        input, textarea { width: 200px; padding: 8px; margin: 10px 5px; }
         textarea { width: 300px; height: 60px; }
-        select { width: 100px; }
+        input#concurrency { width: 80px; }
         button { padding: 10px 20px; background: #007bff; color: white; border: none; cursor: pointer; }
         button:hover { background: #0056b3; }
-        button:disabled { background: #6c757d; cursor: not-allowed; }
         .result { margin: 15px 0; padding: 10px; border-left: 4px solid #007bff; background: #f8f9fa; }
         .error { border-left-color: #dc3545; background: #f8d7da; }
         .success { border-left-color: #28a745; background: #d4edda; }
-        table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 0.9em; }
-        th, td { padding: 6px; text-align: left; border: 1px solid #ddd; }
+        table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+        th, td { padding: 8px; text-align: left; border: 1px solid #ddd; }
         th { background: #f1f1f1; }
-        .progress { width: 100%; height: 20px; background: #e9ecef; border-radius: 10px; overflow: hidden; }
-        .progress-bar { height: 100%; background: #007bff; width: 0%; transition: width 0.3s; }
-        .stats { display: flex; gap: 20px; margin: 10px 0; }
-        .stat { background: #f8f9fa; padding: 10px; border-radius: 5px; text-align: center; }
+        .progress { margin: 20px 0; font-weight: bold; }
+        .fast-hits { background: #d4edda; border-left-color: #28a745; }
     </style>
 </head>
 <body>
     <h1>HTTPS Subnet Image Timing Checker</h1>
-    <p>Enter subnet (e.g., 192.168.1.0/24), ports (comma-separated), and max concurrent tests (16 default).</p>
+    <p>Enter subnet (e.g., 192.168.1), comma-separated ports, and concurrency. Shows ONLY IPs/ports responding &lt;500ms.</p>
     
-    <input type="text" id="subnet" placeholder="192.168.1.0/24" value="192.168.1.0/24">
-    <textarea id="ports" placeholder="443,8443">443</textarea>
-    <select id="concurrency">
-        <option value="8">8 concurrent</option>
-        <option value="16" selected>16 concurrent</option>
-        <option value="32">32 concurrent</option>
-    </select>
+    <input type="text" id="subnet" placeholder="192.168.1" value="192.168.1">
+    <textarea id="ports" placeholder="443,8443,8080">443</textarea>
+    <input type="number" id="concurrency" placeholder="16" value="16" min="1" max="64">
     <button onclick="runTests()">Scan Subnet</button>
     
-    <div id="progress" style="display:none;">
-        <div class="progress"><div class="progress-bar" id="progressBar"></div></div>
-        <div id="progressText">0/0 (0%)</div>
-    </div>
-    
-    <div id="stats" class="stats" style="display:none;"></div>
     <div id="results"></div>
 
     <script>
-        const TIMEOUT = 2000;
-        let allResults = [];
-
-        function parseSubnet(subnet) {
-            const [network, bits] = subnet.split('/');
-            const [a, b, c, d] = network.split('.').map(Number);
-            const mask = ~((1 << (32 - bits)) - 1);
-            const start = (a << 24 | b << 16 | c << 8 | d) & mask;
-            const end = start | (~mask & 0xFFFFFFFF);
-            return { start, end };
-        }
-
-        function ipToString(num) {
-            return [
-                (num >> 24) & 255,
-                (num >> 16) & 255,
-                (num >> 8) & 255,
-                num & 255
-            ].join('.');
-        }
-
-        function generateIPs(start, end) {
-            const ips = [];
-            for (let i = start; i <= end; i++) {
-                if ((i & 0xFF) !== 0 && (i & 0xFF) !== 255) { // Skip .0 and .255
-                    ips.push(ipToString(i));
-                }
-            }
-            return ips;
-        }
+        const TIMEOUT = 2000; // 2 seconds
+        const FAST_THRESHOLD = 500; // 0.5 seconds
 
         async function runTests() {
             const subnet = document.getElementById('subnet').value.trim();
             const portsText = document.getElementById('ports').value.trim();
-            const concurrency = parseInt(document.getElementById('concurrency').value);
+            const concurrency = parseInt(document.getElementById('concurrency').value) || 16;
             const ports = portsText.split(',').map(p => p.trim()).filter(p => p);
-
+            const resultsDiv = document.getElementById('results');
+            
             if (!subnet || ports.length === 0) {
-                document.getElementById('results').innerHTML = '<div class="error">Enter subnet and ports.</div>';
+                resultsDiv.innerHTML = '<div class="error">Please enter subnet and at least one port.</div>';
                 return;
             }
 
-            const { start, end } = parseSubnet(subnet);
-            const ips = generateIPs(start, end);
-            allResults = [];
-            
-            document.getElementById('progress').style.display = 'block';
-            document.getElementById('results').innerHTML = `<h3>Scanning ${ips.length} IPs x ${ports.length} ports = ${ips.length * ports.length} tests (16 concurrent)...`;
-            document.getElementById('stats').style.display = 'none';
+            // Generate IP range from subnet (e.g., 192.168.1 -> 192.168.1.1-254)
+            const ips = generateIPs(subnet);
+            resultsDiv.innerHTML = `<div class="progress">Scanning ${ips.length} IPs × ${ports.length} ports (${ips.length * ports.length} total tests) at ${concurrency} concurrent...</div>`;
 
-            const semaphore = createSemaphore(concurrency);
-            const promises = [];
-
-            for (const ip of ips) {
-                for (const port of ports) {
-                    promises.push(semaphore.run(() => testImage(ip, port)));
-                }
+            // Run tests in batches
+            const fastHits = [];
+            for (let i = 0; i < ips.length; i += concurrency) {
+                const batch = ips.slice(i, i + concurrency);
+                const batchTests = batch.flatMap(ip => 
+                    ports.map(port => testImage(ip, port))
+                );
+                const batchResults = await Promise.allSettled(batchTests);
+                
+                // Filter fast successes
+                batchResults.forEach(result => {
+                    if (result.status === 'fulfilled' && result.value.success && result.value.time < FAST_THRESHOLD) {
+                        fastHits.push(result.value);
+                    }
+                });
+                
+                updateProgress(resultsDiv, i + batch.length, ips.length, fastHits.length);
             }
 
-            await Promise.all(promises);
-            displayResults(ips.length, ports.length);
+            displayResults(subnet, fastHits);
         }
 
-        function createSemaphore(maxConcurrent) {
-            let active = 0;
-            const queue = [];
-            return {
-                async run(task) {
-                    return new Promise((resolve) => {
-                        queue.push(() => {
-                            active++;
-                            updateProgress();
-                            task().finally(() => {
-                                active--;
-                                updateProgress();
-                                const next = queue.shift();
-                                if (next) next();
-                            }).then(resolve);
-                        });
-                        if (active < maxConcurrent) {
-                            const next = queue.shift();
-                            if (next) next();
-                        }
-                    });
-                }
-            };
-        }
-
-        function updateProgress() {
-            const total = allResults.length;
-            const percent = (total / (document.getElementById('progressText').dataset.total || 1)) * 100;
-            document.getElementById('progressBar').style.width = `${percent}%`;
-            document.getElementById('progressText').textContent = `${total}/${document.getElementById('progressText').dataset.total || 0} (${percent.toFixed(0)}%)`;
+        function generateIPs(subnet) {
+            const parts = subnet.split('.');
+            if (parts.length !== 3) return [];
+            const base = parts.join('.');
+            const ips = [];
+            for (let i = 1; i <= 254; i++) {
+                ips.push(`${base}.${i}`);
+            }
+            return ips;
         }
 
         async function testImage(host, port) {
@@ -150,14 +93,22 @@
                 
                 img.onload = () => {
                     const end = performance.now();
-                    allResults.push({ host, port, time: end - start, success: true, target });
-                    resolve();
+                    resolve({ 
+                        host, port, 
+                        time: end - start, 
+                        success: true,
+                        target 
+                    });
                 };
                 
                 img.onerror = () => {
                     const end = performance.now();
-                    allResults.push({ host, port, time: end - start, success: false, target, error: 'Failed' });
-                    resolve();
+                    resolve({ 
+                        host, port, 
+                        time: end - start, 
+                        success: false,
+                        target 
+                    });
                 };
                 
                 img.src = target;
@@ -165,55 +116,60 @@
                 setTimeout(() => {
                     if (!img.complete) {
                         const end = performance.now();
-                        allResults.push({ host, port, time: end - start, success: false, target, error: 'Timeout' });
-                        resolve();
+                        resolve({ 
+                            host, port, 
+                            time: end - start, 
+                            success: false,
+                            target,
+                            error: 'Timeout'
+                        });
                     }
                 }, TIMEOUT);
             });
         }
 
-        function displayResults(ipCount, portCount) {
-            document.getElementById('progress').style.display = 'none';
-            
-            const up = allResults.filter(r => r.success);
-            const byIP = {};
-            allResults.forEach(r => {
-                if (!byIP[r.host]) byIP[r.host] = { up: 0, total: 0 };
-                byIP[r.host].total++;
-                if (r.success) byIP[r.host].up++;
-            });
-            
-            const liveIPs = Object.entries(byIP)
-                .filter(([_, stats]) => stats.up > 0)
-                .sort((a, b) => b[1].up - a[1].up);
+        function updateProgress(div, completed, total, fastHits) {
+            div.innerHTML = `<div class="progress">
+                Completed ${completed}/${total} IPs (${Math.round(completed/total*100)}%) | 
+                ${fastHits} fast hits found (&lt;${FAST_THRESHOLD}ms)
+            </div>`;
+        }
 
-            let html = `
-                <div class="stats">
-                    <div class="stat success">${up.length}/${allResults.length} tests passed</div>
-                    <div class="stat">${liveIPs.length}/${ipCount} IPs responding</div>
-                    <div class="stat">${up.length > 0 ? `${(up.reduce((s, r) => s + r.time, 0) / up.length).toFixed(0)}ms avg` : 'N/A'}</div>
-                </div>
-                <h3>Live IPs (${liveIPs.length})</h3>
+        function displayResults(subnet, fastHits) {
+            const resultsDiv = document.getElementById('results');
+            if (fastHits.length === 0) {
+                resultsDiv.innerHTML = `<div class="error">
+                    <h3>No fast responders found</h3>
+                    <p>No IP/port combinations responded in under ${FAST_THRESHOLD}ms.</p>
+                </div>`;
+                return;
+            }
+
+            // Group by IP
+            const byIP = fastHits.reduce((acc, hit) => {
+                if (!acc[hit.host]) acc[hit.host] = [];
+                acc[hit.host].push(hit);
+                return acc;
+            }, {});
+
+            let html = `<h3>Fast Responders (&lt;${FAST_THRESHOLD}ms) in ${subnet}.0/24</h3>
+                <p>Found ${fastHits.length} fast endpoints across ${Object.keys(byIP).length} IPs</p>
                 <table>
-                    <tr><th>IP</th><th>Ports Up</th><th>Fastest (ms)</th></tr>`;
+                    <tr><th>IP</th><th>Port</th><th>Time</th><th>Target</th></tr>`;
 
-            liveIPs.slice(0, 50).forEach(([ip, stats]) => {
-                const fastest = allResults.filter(r => r.host === ip && r.success)
-                    .reduce((fast, r) => r.time < fast ? r.time : fast, Infinity);
-                html += `<tr><td>${ip}</td><td>${stats.up}/${stats.total}</td><td>${fastest.toFixed(0)}</td></tr>`;
+            Object.entries(byIP).sort(([a],[b]) => a.localeCompare(b)).forEach(([ip, ports]) => {
+                ports.sort((a,b) => a.time - b.time).forEach(hit => {
+                    html += `<tr class="fast-hits">
+                        <td><strong>${hit.host}</strong></td>
+                        <td>${hit.port}</td>
+                        <td>${hit.time.toFixed(0)}ms</td>
+                        <td>${hit.target}</td>
+                    </tr>`;
+                });
             });
 
             html += '</table>';
-            if (liveIPs.length > 50) {
-                html += `<p>... and ${liveIPs.length - 50} more</p>`;
-            }
-
-            document.getElementById('results').innerHTML = html;
-            document.getElementById('stats').innerHTML = `
-                <div class="stat success">${up.length}/${allResults.length} tests passed</div>
-                <div class="stat">${liveIPs.length}/${ipCount} IPs responding</div>
-                <div class="stat">${up.length > 0 ? `${(up.reduce((s, r) => s + r.time, 0) / up.length).toFixed(0)}ms avg` : 'N/A'}</div>`;
-            document.getElementById('stats').style.display = 'flex';
+            resultsDiv.innerHTML = html;
         }
     </script>
 </body>
