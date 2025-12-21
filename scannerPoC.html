@@ -16,12 +16,12 @@
         button:hover:not(:disabled) { background: #0056b3; }
         .status { margin-top: 10px; padding: 10px; border-radius: 6px; background: #d4edda; border: 1px solid #c3e6cb; }
         .results { display: flex; flex-direction: column; gap: 15px; margin-top: 20px; }
-        .host-box { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); border-left: 5px solid #007bff; opacity: 0.3; transition: all 0.3s; }
-        .host-box.visible { opacity: 1; transform: translateY(0); border-left-color: #28a745; }
-        .host-box.hidden { opacity: 0.3; transform: translateY(10px); }
+        .host-box { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); border-left: 5px solid #007bff; transition: all 0.3s; }
+        .host-box.visible { border-left-color: #28a745; }
+        .host-box.hidden { display: none; }
         .host-box.deep-scanned { border-left-color: #17a2b8 !important; }
         .host-ip { font-size: 24px; font-weight: 600; margin-bottom: 15px; color: #1a1a1a; }
-        .initial-timing { font-size: 18px; font-weight: 500; color: #dc3545; font-family: monospace; margin-bottom: 10px; }
+        .initial-timing { font-size: 18px; font-weight: 500; color: #dc3545; font-family: monospace; margin-bottom: 10px; text-decoration: none; display: block; }
         .initial-timing.fast { color: #28a745; }
         .port-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 15px; }
         .port-pill { padding: 8px 12px; border-radius: 20px; font-weight: 500; font-size: 14px; text-align: center; font-family: monospace; }
@@ -29,7 +29,6 @@
         .port-pill.slow { background: #6c757d; color: white; opacity: 0.7; }
         .legend { display: flex; flex-wrap: wrap; gap: 20px; font-size: 14px; margin-top: 20px; }
         .legend-color { width: 20px; height: 20px; border-radius: 50%; }
-        .stats { font-size: 14px; color: #666; margin-bottom: 10px; }
         .concurrency-display { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
         #initialTimeout { width: 120px; }
         .input-row { display: flex; gap: 15px; align-items: end; flex-wrap: wrap; }
@@ -72,9 +71,9 @@
     <div id="phase1Results" class="results"></div>
     
     <div class="legend">
-        <div class="legend-item"><span class="legend-color" style="background: #28a745;"></span>Fast connect (< threshold)</div>
+        <div class="legend-item"><span class="legend-color" style="background: #28a745;"></span>Fast connect</div>
         <div class="legend-item"><span class="legend-color" style="background: #17a2b8;"></span>Deep scanned</div>
-        <div class="legend-item"><span class="legend-color" style="background: linear-gradient(135deg, #28a745, #20c997);"></span>Fast port (<2s)</div>
+        <div class="legend-item"><span class="legend-color" style="background: linear-gradient(135deg, #28a745, #20c997);"></span>Fast port</div>
     </div>
 
     <script>
@@ -84,8 +83,36 @@
         let maxTimeout = 3000;
         let isScanning = false;
 
+        // BEST METHOD: Image loading timing (most reliable cross-browser)
+        async function testPort(ip, port, timeoutMs) {
+            const url = `https://${ip}:${port}/favicon.ico?t=${Date.now()}`;
+            const start = performance.now();
 
-         function parseSubnet(cidr) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                const timeoutId = setTimeout(() => {
+                    resolve({ 
+                        time: Math.round(timeoutMs), 
+                        status: 'timeout', 
+                        success: false 
+                    });
+                }, timeoutMs);
+
+                img.onload = img.onerror = () => {
+                    clearTimeout(timeoutId);
+                    const elapsed = Math.round(performance.now() - start);
+                    resolve({
+                        time: elapsed,
+                        status: 'fast',
+                        success: true
+                    });
+                };
+
+                img.src = url;
+            });
+        }
+
+        function parseSubnet(cidr) {
             const [net, bits] = cidr.split('/');
             const [a, b, c, d] = net.match(/\d+/g).map(Number);
             const mask = ~((1 << (32 - bits)) - 1);
@@ -93,46 +120,36 @@
             const end = start | (~mask >>> 0);
             const ips = [];
             for (let i = start; i <= end; i++) {
-                const ip = [
-                    (i >>> 24) & 255,
-                    (i >>> 16) & 255,
-                    (i >>> 8) & 255,
-                    i & 255
-                ].join('.');
+                const ip = [(i>>>24)&255, (i>>>16)&255, (i>>>8)&255, i&255].join('.');
                 ips.push(ip);
             }
             return ips;
         }
 
-
-
-        
-
-        async function testPort(ip, port, timeoutMs) {
-                const url = `https://${ip}:${port}/favicon.ico`;
-                const start = performance.now();
-            
-                return new Promise((resolve) => {
-                    const img = new Image();
-                    const timeoutId = setTimeout(() => {
-                        resolve({ time: timeoutMs, status: 'timeout', success: false });
-                    }, timeoutMs);
-            
-                    img.onload = img.onerror = () => {
-                        clearTimeout(timeoutId);
-                        resolve({
-                            time: Math.round(performance.now() - start),
-                            status: img.complete ? 'fast' : 'error',
-                            success: true
-                        });
-                    };
-            
-                    img.src = url + '?t=' + Date.now();
+        class Semaphore {
+            constructor(concurrency) {
+                this.concurrency = concurrency;
+                this.queue = [];
+                this.active = 0;
+            }
+            async acquire() {
+                return new Promise(resolve => {
+                    this.queue.push(resolve);
+                    this._processQueue();
                 });
             }
+            release() {
+                this.active--;
+                this._processQueue();
+            }
+            _processQueue() {
+                while (this.active < this.concurrency && this.queue.length > 0) {
+                    this.active++;
+                    this.queue.shift()();
+                }
+            }
+        }
 
-
-        // Phase 1: Stream results live
         async function phase1Sweep() {
             const subnetInput = document.getElementById('subnet').value.trim();
             const concurrency = parseInt(document.getElementById('concurrency').value);
@@ -159,7 +176,6 @@
                     const result = await testPort(ip, PORT_80, timeout);
                     semaphore.release();
                     
-                    // Live update
                     phase1Results.push({ ip, ...result });
                     phase1Results.sort((a, b) => a.time - b.time);
                     renderPhase1Results();
@@ -197,9 +213,8 @@
             `).join('');
         }
 
-        // Phase 2: Live port-by-port updates
         async function phase2Deepscan() {
-            const visibleBoxes = document.querySelectorAll('.host-box.visible');
+            const visibleBoxes = document.querySelectorAll('.host-box:not(.hidden)');
             if (visibleBoxes.length === 0) {
                 alert('No visible candidates! Adjust threshold.');
                 return;
@@ -223,13 +238,12 @@
                     try {
                         const portTimes = { 80: { time: cand.time, success: cand.success } };
                         
-                        // Test each port and update immediately
                         for (const port of WEB_PORTS) {
                             const result = await testPort(cand.ip, port, maxTimeout);
                             portTimes[port] = result;
                             updateHostBox(cand.ip, portTimes);
                             statusEl.textContent = `Phase 2: ${cand.ip}:${port} ${result.time}ms`;
-                            await new Promise(r => setTimeout(r, 50)); // Brief pause for smooth streaming
+                            await new Promise(r => setTimeout(r, 50));
                         }
                         
                     } finally {
@@ -278,11 +292,11 @@
             document.querySelectorAll('.host-box').forEach(box => {
                 const time = parseInt(box.dataset.time);
                 if (time <= value) {
-                    box.style.display = 'block';  // Show completely
+                    box.style.display = 'block';
                     box.classList.add('visible');
                     box.classList.remove('hidden');
                 } else {
-                    box.style.display = 'none';   // Remove completely
+                    box.style.display = 'none';
                     box.classList.remove('visible');
                     box.classList.add('hidden');
                 }
