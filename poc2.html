@@ -3,57 +3,64 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HTTPS Multi-Port Timing Checker</title>
+    <title>Multi-Port HTTPS Timing Checker</title>
     <style>
         body { font-family: Arial, sans-serif; max-width: 1000px; margin: 0 auto; padding: 20px; }
-        input { width: 200px; padding: 8px; margin: 10px 5px; }
+        input, textarea { width: 300px; padding: 8px; margin: 10px 5px; }
         button { padding: 10px 20px; background: #007bff; color: white; border: none; cursor: pointer; }
         button:hover { background: #0056b3; }
-        table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-        th, td { padding: 12px; text-align: left; border: 1px solid #ddd; }
-        th { background: #f8f9fa; }
-        .success { background: #d4edda !important; color: #155724; font-weight: bold; }
-        .fast-success { background: #28a745 !important; color: white; font-weight: bold; }
-        .error { background: #f8d7da !important; color: #721c24; }
-        .summary { margin: 20px 0; padding: 15px; border-radius: 5px; font-size: 18px; font-weight: bold; }
-        .up { background: #d4edda; color: #155724; }
-        .down { background: #f8d7da; color: #721c24; }
+        .result { margin: 15px 0; padding: 10px; border-left: 4px solid #007bff; background: #f8f9fa; }
+        .error { border-left-color: #dc3545; background: #f8d7da; }
+        .success { border-left-color: #28a745; background: #d4edda; }
+        table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+        th, td { padding: 8px; text-align: left; border: 1px solid #ddd; }
+        th { background: #f1f1f1; }
+        .port-section { margin: 20px 0; }
     </style>
 </head>
 <body>
-    <h1>HTTPS Multi-Port Timing Checker</h1>
-    <p>Enter local IP and comma-separated ports (default: 80,443,8008,8006,8080,8443). Green = &lt;0.5s success!</p>
+    <h1>Multi-Port HTTPS Timing Checker</h1>
+    <p>Enter IP and comma-separated ports (default: 80,443,8006,8008,8080,8443). Tests each port separately with 2s timeout.</p>
     
     <input type="text" id="host" placeholder="192.168.1.100" value="192.168.1.100">
-    <input type="text" id="ports" placeholder="80,443,8008,8006,8080,8443" value="80,443,8008,8006,8080,8443">
+    <textarea id="ports" rows="2" placeholder="80,443,8006,8008,8080,8443">80,443,8006,8008,8080,8443</textarea>
+    <br>
     <button onclick="runAllTests()">Run All Port Tests</button>
     
     <div id="results"></div>
 
     <script>
         const TIMEOUT = 2000; // 2 seconds
-        const FAST_THRESHOLD = 500; // 0.5 seconds
+        const DEFAULT_PORTS = [80, 443, 8006, 8008, 8080, 8443];
 
         async function runAllTests() {
-            const host = document.getElementById('host').value;
-            const portsInput = document.getElementById('ports').value;
-            const ports = portsInput.split(',').map(p => p.trim()).filter(p => p);
-            const resultsDiv = document.getElementById('results');
-            resultsDiv.innerHTML = '<h3>Testing ports on ' + host + '...</h3>';
+            const host = document.getElementById('host').value.trim();
+            const portsInput = document.getElementById('ports').value.trim();
+            const ports = portsInput ? portsInput.split(',').map(p => parseInt(p.trim())).filter(p => !isNaN(p)) : DEFAULT_PORTS;
+            
+            if (!host) {
+                alert('Please enter a host IP');
+                return;
+            }
 
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = `<h3>Testing ${ports.length} ports on ${host}...</h3>`;
+
+            // Run all port tests in parallel
             const allPortResults = await Promise.allSettled(
-                ports.map(port => testAllMethods(host, parseInt(port)))
+                ports.map(port => testPort(host, port))
             );
 
             displayAllResults(host, ports, allPortResults);
         }
 
-        async function testAllMethods(host, port) {
+        async function testPort(host, port) {
             const target = `https://${host}:${port}`;
             const tests = await Promise.allSettled([
                 testFetch(target),
                 testImage(target),
                 testXHR(target)
+                // WebSocket skipped for non-443 ports as wss:// expects TLS
             ]);
             return { port, target, tests };
         }
@@ -63,16 +70,18 @@
             try {
                 const controller = new AbortController();
                 setTimeout(() => controller.abort(), TIMEOUT);
+                
                 const response = await fetch(target, {
                     method: 'HEAD',
                     signal: controller.signal,
-                    cache: 'no-cache'
+                    cache: 'no-cache',
+                    mode: 'no-cors' // For local IPs without CORS
                 });
                 const end = performance.now();
-                return { name: 'Fetch', time: end - start, status: response.status, success: true };
+                return { name: 'Fetch HEAD', time: end - start, status: response.status || 'OK', success: true };
             } catch (e) {
                 const end = performance.now();
-                return { name: 'Fetch', time: end - start, error: e.name, success: false };
+                return { name: 'Fetch HEAD', time: end - start, error: e.name, success: false };
             }
         }
 
@@ -82,17 +91,17 @@
                 const img = new Image();
                 img.onload = () => {
                     const end = performance.now();
-                    resolve({ name: 'Image', time: end - start, success: true });
+                    resolve({ name: 'Image Load', time: end - start, success: true });
                 };
                 img.onerror = () => {
                     const end = performance.now();
-                    resolve({ name: 'Image', time: end - start, error: 'Failed', success: false });
+                    resolve({ name: 'Image Load', time: end - start, error: 'Failed', success: false });
                 };
                 img.src = target + '/favicon.ico?' + Date.now();
                 setTimeout(() => {
                     if (!img.complete) {
                         const end = performance.now();
-                        resolve({ name: 'Image', time: end - start, error: 'Timeout', success: false });
+                        resolve({ name: 'Image Load', time: end - start, error: 'Timeout', success: false });
                     }
                 }, TIMEOUT);
             });
@@ -108,7 +117,7 @@
                     if (xhr.readyState === 4) {
                         const end = performance.now();
                         resolve({ 
-                            name: 'XHR', 
+                            name: 'XHR HEAD', 
                             time: end - start, 
                             status: xhr.status, 
                             success: xhr.status >= 200 && xhr.status < 400 
@@ -117,11 +126,11 @@
                 };
                 xhr.ontimeout = () => {
                     const end = performance.now();
-                    resolve({ name: 'XHR', time: end - start, error: 'Timeout', success: false });
+                    resolve({ name: 'XHR HEAD', time: end - start, error: 'Timeout', success: false });
                 };
                 xhr.onerror = () => {
                     const end = performance.now();
-                    resolve({ name: 'XHR', time: end - start, error: 'Network Error', success: false });
+                    resolve({ name: 'XHR HEAD', time: end - start, error: 'Network Error', success: false });
                 };
                 xhr.send();
             });
@@ -129,62 +138,41 @@
 
         function displayAllResults(host, ports, allPortResults) {
             const resultsDiv = document.getElementById('results');
-            let html = `<h3>Results for ${host}</h3>`;
+            let html = `<h3>Complete Results for ${host}</h3>`;
             
-            let totalFastSuccesses = 0;
-            let totalTests = 0;
-
-            html += '<table><tr><th>Port</th><th>Fast Success</th><th>Fetch</th><th>Image</th><th>XHR</th><th>Avg Time</th><th>Status</th></tr>';
-
-            allPortResults.forEach(result => {
-                if (result.status === 'fulfilled') {
-                    const portData = result.value;
-                    const tests = portData.tests.filter(t => t.status === 'fulfilled').map(t => t.value);
-                    totalTests += tests.length;
+            let totalUp = 0;
+            allPortResults.forEach((portResult, portIndex) => {
+                if (portResult.status === 'fulfilled') {
+                    const { port, target, tests } = portResult.value;
+                    html += `<div class="port-section">
+                        <h4>Port ${port} (${target})</h4>
+                        <table>
+                            <tr><th>Test</th><th>Time (ms)</th><th>Status</th></tr>`;
                     
-                    const times = tests.map(t => t.time).filter(t => t > 0);
-                    const avgTime = times.length ? (times.reduce((a, b) => a + b) / times.length).toFixed(0) : 'N/A';
-                    const fastSuccesses = tests.filter(t => t.success && t.time < FAST_THRESHOLD).length;
-                    totalFastSuccesses += fastSuccesses;
-                    
-                    const hasFastSuccess = fastSuccesses > 0;
-                    const statusClass = hasFastSuccess ? 'fast-success' : (tests.some(t => t.value.success) ? 'success' : 'error');
-                    const statusText = hasFastSuccess ? `${fastSuccesses} fast` : (tests.some(t => t.value.success) ? 'Slow OK' : 'DOWN');
-                    
-                    html += `<tr>
-                        <td><strong>${portData.port}</strong></td>
-                        <td class="${statusClass}">${hasFastSuccess ? '✅ FAST' : '❌'}</td>`;
-                    
-                    ['Fetch', 'Image', 'XHR'].forEach(method => {
-                        const test = tests.find(t => t.name === method);
-                        let cellClass = 'error';
-                        let cellText = 'FAIL';
-                        if (test) {
-                            if (test.success) {
-                                cellClass = test.time < FAST_THRESHOLD ? 'fast-success' : 'success';
-                                cellText = `${test.time.toFixed(0)}ms`;
-                            } else {
-                                cellText = test.error?.slice(0,8) || 'Error';
-                            }
+                    let portUpCount = 0;
+                    tests.forEach(test => {
+                        if (test.status === 'fulfilled') {
+                            const t = test.value;
+                            const statusClass = t.success ? 'success' : 'error';
+                            const statusText = t.success ? `OK (${t.status || 'connected'})` : (t.error || 'Failed');
+                            html += `<tr><td>${t.name}</td><td>${Math.round(t.time)}</td><td class="${statusClass}">${statusText}</td></tr>`;
+                            if (t.success) portUpCount++;
                         }
-                        html += `<td class="${cellClass}">${cellText}</td>`;
                     });
                     
-                    html += `<td>${avgTime}ms</td>
-                        <td class="${statusClass}">${statusText}</td>
-                    </tr>`;
+                    const portLikelyUp = portUpCount >= 2;
+                    if (portLikelyUp) totalUp++;
+                    html += `</table>
+                        <div class="result ${portLikelyUp ? 'success' : 'error'}">
+                            <strong>${portLikelyUp ? 'PORT UP' : 'PORT DOWN'}</strong> (${portUpCount}/3 tests passed)
+                        </div></div>`;
                 }
             });
 
-            html += '</table>';
-            
-            const overallSuccessRate = totalTests ? ((totalFastSuccesses / totalTests) * 100).toFixed(1) : 0;
-            const overallClass = totalFastSuccesses >= 2 ? 'up' : 'down';
-            html += `<div class="summary ${overallClass}">
-                📊 OVERALL: ${totalFastSuccesses} fast successes / ${totalTests} tests (${overallSuccessRate}%) - 
-                ${totalFastSuccesses >= 2 ? '🚀 LIKELY LIVE WITH FAST RESPONSES' : '⚠️  SLOW/DOWN'}
+            html += `<div class="result ${totalUp > 0 ? 'success' : 'error'}">
+                <strong>Summary: ${totalUp}/${ports.length} ports likely UP</strong>
             </div>`;
-
+            
             resultsDiv.innerHTML = html;
         }
     </script>
