@@ -17,23 +17,25 @@
         th { background: #f1f1f1; }
         .port-section { margin: 20px 0; border: 1px solid #ddd; padding: 15px; }
         .likely-up { font-weight: bold; color: #28a745; }
-        .likely-down { font-weight: bold; color: #dc3545; }
-        .fast-only { display: none; }
+        .likely-filtered { font-weight: bold; color: #ffc107; }
+        .fast-row { cursor: pointer; background: #e8f5e8; }
+        .fast-row:hover { background: #d4edda; }
+        a { text-decoration: none; color: inherit; }
     </style>
 </head>
 <body>
     <h1>HTTPS Multi-Port Timing Checker</h1>
-    <p>Enter local IP and comma-separated ports (e.g., 192.168.1.100, 443,8443,8080). Shows only tests <500ms. Ports with no fast tests hidden.</p>
+    <p>Enter local IP and comma-separated ports. Shows only <500ms tests as clickable links to / (HTTP:80, HTTPS:others).</p>
     
     <input type="text" id="host" placeholder="192.168.1.100" value="192.168.1.100">
-    <input type="text" id="ports" placeholder="443,8443,8080" value="443,8443,8080">
+    <input type="text" id="ports" placeholder="80,443,8443,8080" value="80,443,8443,8080">
     <button onclick="runTests()">Run Tests</button>
     
     <div id="results"></div>
 
     <script>
-        const TIMEOUT = 2000; // 2 seconds
-        const FAST_THRESHOLD = 500; // Only show tests under 500ms
+        const TIMEOUT = 2000;
+        const FAST_THRESHOLD = 500;
 
         async function runTests() {
             const host = document.getElementById('host').value.trim();
@@ -57,7 +59,7 @@
                 testXHR(target),
                 testWebSocket(host, port)
             ]);
-            return { port, target, tests };
+            return { port, host, tests };
         }
 
         async function testFetch(target) {
@@ -155,50 +157,58 @@
             });
         }
 
+        function getLinkUrl(host, port) {
+            return port === 80 ? `http://${host}:${port}/` : `https://${host}:${port}/`;
+        }
+
         function displayResults(host, ports, allResults) {
             const resultsDiv = document.getElementById('results');
-            let html = `<h3>Results for ${host} (showing only <500ms tests)</h3>`;
+            let html = `<h3>Results for ${host} (<500ms = SUCCESS)</h3>`;
             
             allResults.forEach((result, i) => {
                 if (result.status === 'fulfilled') {
                     const portData = result.value;
                     const fastTests = [];
                     
-                    // Filter only fast tests (<500ms)
                     portData.tests.forEach(testResult => {
                         if (testResult.status === 'fulfilled') {
                             const t = testResult.value;
                             if (t.time < FAST_THRESHOLD) {
+                                // Showing = SUCCESS
+                                t.success = true;
                                 fastTests.push(t);
                             }
                         }
                     });
                     
-                    // Only show port if it has at least one fast test
                     if (fastTests.length > 0) {
-                        let upCount = fastTests.filter(t => t.success).length;
-                        
                         html += `<div class="port-section">
-                            <h4>Port ${portData.port} (<strong>${fastTests.length}</strong> fast tests)</h4>
+                            <h4>Port ${portData.port} 
+                                <a href="${getLinkUrl(portData.host, portData.port)}" target="_blank">
+                                    → ${getLinkUrl(portData.host, portData.port)}
+                                </a>
+                            </h4>
                             <table>
                                 <tr><th>Test</th><th>Time (ms)</th><th>Status</th></tr>`;
                         
                         fastTests.forEach(t => {
-                            const statusClass = t.success ? 'success' : 'error';
-                            const statusText = t.success ? `OK (${t.status || 'connected'})` : (t.error || 'Failed');
-                            html += `<tr><td>${t.name}</td><td>${t.time.toFixed(0)}</td><td class="${statusClass}">${statusText}</td></tr>`;
+                            html += `<tr class="fast-row">
+                                <td><a href="${getLinkUrl(portData.host, portData.port)}" target="_blank">${t.name}</a></td>
+                                <td>${t.time.toFixed(0)}</td>
+                                <td class="success">SUCCESS</td>
+                            </tr>`;
                         });
                         
-                        html += `</table><div class="result ${upCount >= 2 ? 'success' : 'error'}">
-                            <span class="${upCount >= 2 ? 'likely-up' : 'likely-down'}">${upCount >= 2 ? 'LIKELY UP' : 'LIKELY DOWN'}</span> 
-                            (${upCount}/${fastTests.length} fast tests passed)
+                        html += `</table><div class="result success">
+                            <span class="likely-up">LIKELY UP</span> 
+                            (${fastTests.length}/${fastTests.length} fast tests)
                         </div></div>`;
                     }
                 }
             });
             
-            if (html === `<h3>Results for ${host} (showing only <500ms tests)</h3>`) {
-                html += '<p>No ports had tests complete under 500ms.</p>';
+            if (html === `<h3>Results for ${host} (<500ms = SUCCESS)</h3>`) {
+                html += '<p>No ports had tests complete under 500ms (all FILTERED).</p>';
             }
             
             resultsDiv.innerHTML = html;
