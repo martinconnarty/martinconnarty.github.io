@@ -18,11 +18,12 @@
         .port-section { margin: 20px 0; border: 1px solid #ddd; padding: 15px; }
         .likely-up { font-weight: bold; color: #28a745; }
         .likely-down { font-weight: bold; color: #dc3545; }
+        .fast-only { display: none; }
     </style>
 </head>
 <body>
     <h1>HTTPS Multi-Port Timing Checker</h1>
-    <p>Enter local IP and comma-separated ports (e.g., 192.168.1.100, 443,8443,8080). Each port gets identical 2s timeout tests.</p>
+    <p>Enter local IP and comma-separated ports (e.g., 192.168.1.100, 443,8443,8080). Shows only tests <500ms. Ports with no fast tests hidden.</p>
     
     <input type="text" id="host" placeholder="192.168.1.100" value="192.168.1.100">
     <input type="text" id="ports" placeholder="443,8443,8080" value="443,8443,8080">
@@ -32,6 +33,7 @@
 
     <script>
         const TIMEOUT = 2000; // 2 seconds
+        const FAST_THRESHOLD = 500; // Only show tests under 500ms
 
         async function runTests() {
             const host = document.getElementById('host').value.trim();
@@ -155,33 +157,49 @@
 
         function displayResults(host, ports, allResults) {
             const resultsDiv = document.getElementById('results');
-            let html = `<h3>Results for ${host}</h3>`;
+            let html = `<h3>Results for ${host} (showing only <500ms tests)</h3>`;
             
             allResults.forEach((result, i) => {
                 if (result.status === 'fulfilled') {
                     const portData = result.value;
-                    html += `<div class="port-section">
-                        <h4>Port ${portData.port}</h4>
-                        <table>
-                            <tr><th>Test</th><th>Time (ms)</th><th>Status</th></tr>`;
+                    const fastTests = [];
                     
-                    let upCount = 0;
+                    // Filter only fast tests (<500ms)
                     portData.tests.forEach(testResult => {
                         if (testResult.status === 'fulfilled') {
                             const t = testResult.value;
-                            const statusClass = t.success ? 'success' : 'error';
-                            const statusText = t.success ? `OK (${t.status || 'connected'})` : (t.error || 'Failed');
-                            html += `<tr><td>${t.name}</td><td>${t.time.toFixed(0)}</td><td class="${statusClass}">${statusText}</td></tr>`;
-                            if (t.success) upCount++;
+                            if (t.time < FAST_THRESHOLD) {
+                                fastTests.push(t);
+                            }
                         }
                     });
                     
-                    html += `</table><div class="result ${upCount >= 2 ? 'success' : 'error'}">
-                        <span class="${upCount >= 2 ? 'likely-up' : 'likely-down'}">${upCount >= 2 ? 'LIKELY UP' : 'LIKELY DOWN'}</span> 
-                        (${upCount}/4 tests passed)
-                    </div></div>`;
+                    // Only show port if it has at least one fast test
+                    if (fastTests.length > 0) {
+                        let upCount = fastTests.filter(t => t.success).length;
+                        
+                        html += `<div class="port-section">
+                            <h4>Port ${portData.port} (<strong>${fastTests.length}</strong> fast tests)</h4>
+                            <table>
+                                <tr><th>Test</th><th>Time (ms)</th><th>Status</th></tr>`;
+                        
+                        fastTests.forEach(t => {
+                            const statusClass = t.success ? 'success' : 'error';
+                            const statusText = t.success ? `OK (${t.status || 'connected'})` : (t.error || 'Failed');
+                            html += `<tr><td>${t.name}</td><td>${t.time.toFixed(0)}</td><td class="${statusClass}">${statusText}</td></tr>`;
+                        });
+                        
+                        html += `</table><div class="result ${upCount >= 2 ? 'success' : 'error'}">
+                            <span class="${upCount >= 2 ? 'likely-up' : 'likely-down'}">${upCount >= 2 ? 'LIKELY UP' : 'LIKELY DOWN'}</span> 
+                            (${upCount}/${fastTests.length} fast tests passed)
+                        </div></div>`;
+                    }
                 }
             });
+            
+            if (html === `<h3>Results for ${host} (showing only <500ms tests)</h3>`) {
+                html += '<p>No ports had tests complete under 500ms.</p>';
+            }
             
             resultsDiv.innerHTML = html;
         }
