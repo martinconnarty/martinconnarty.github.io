@@ -26,7 +26,7 @@
 </head>
 <body>
     <h1>CIDR HTTPS Multi-Port Timing Checker</h1>
-    <p>Enter CIDR (e.g., 192.168.1.0/24) and comma-separated ports. Scans every IP with <500ms=CLICKABLE SUCCESS tests.</p>
+    <p>Enter CIDR (e.g., 192.168.1.0/24) and comma-separated ports. Scans 8 IPs concurrently with <500ms=CLICKABLE SUCCESS tests.</p>
     
     <input type="text" id="cidr" placeholder="192.168.1.0/24" value="192.168.1.0/24">
     <input type="text" id="ports" placeholder="80,443,8443,8080" value="80,443,8443,8080">
@@ -37,6 +37,7 @@
     <script>
         const TIMEOUT = 2000;
         const FAST_THRESHOLD = 500;
+        const CONCURRENT_IPS = 8;
 
         function parseCIDR(cidr) {
             const [ip, bits] = cidr.split('/');
@@ -64,31 +65,48 @@
             const ips = parseCIDR(cidr);
             
             const resultsDiv = document.getElementById('results');
-            resultsDiv.innerHTML = `<h3>Scanning ${ips.length} IPs x ${ports.length} ports...</h3><div class="progress">0/${ips.length * ports.length}</div>`;
+            resultsDiv.innerHTML = `<h3>Scanning ${ips.length} IPs x ${ports.length} ports (8 IPs concurrent)...</h3><div class="progress">0/${ips.length}</div>`;
 
             const allResults = [];
-            let completed = 0;
+            let completedIPs = 0;
 
-            for (const ip of ips) {
-                for (const portStr of ports) {
-                    const port = parseInt(portStr);
-                    try {
-                        const result = await testIPPort(ip, port);
-                        allResults.push(result);
-                        
-                        completed++;
-                        const progressEl = resultsDiv.querySelector('.progress');
-                        progressEl.textContent = `${completed}/${ips.length * ports.length}`;
-                        
-                        // Update display for IPs with fast tests
-                        if (result.fastTests.length > 0) {
-                            displayIPResults(ip, [result]);
+            // Process 8 IPs at a time
+            for (let i = 0; i < ips.length; i += CONCURRENT_IPS) {
+                const batch = ips.slice(i, i + CONCURRENT_IPS);
+                console.log(`Processing batch ${Math.floor(i/8)+1}: IPs ${batch.join(', ')}`);
+                
+                const batchPromises = batch.map(async (ip) => {
+                    const ipResults = [];
+                    for (const portStr of ports) {
+                        const port = parseInt(portStr);
+                        try {
+                            const result = await testIPPort(ip, port);
+                            ipResults.push(result);
+                        } catch (e) {
+                            // Ignore errors
                         }
-                    } catch (e) {
-                        completed++;
-                        resultsDiv.querySelector('.progress').textContent = `${completed}/${ips.length * ports.length}`;
                     }
-                }
+                    return { ip, ipResults };
+                });
+
+                const batchResults = await Promise.allSettled(batchPromises);
+                
+                // Process results from this batch
+                batchResults.forEach((result) => {
+                    if (result.status === 'fulfilled') {
+                        const { ip, ipResults } = result.value;
+                        allResults.push({ ip, ipResults });
+                        
+                        // Display IPs with fast tests immediately
+                        const fastPortCount = ipResults.filter(r => r.fastTests.length > 0).length;
+                        if (fastPortCount > 0) {
+                            displayIPResults(ip, ipResults);
+                        }
+                    }
+                });
+
+                completedIPs += batch.length;
+                resultsDiv.querySelector('.progress').textContent = `${completedIPs}/${ips.length} IPs`;
             }
             
             resultsDiv.innerHTML += '<p>Scan complete!</p>';
@@ -220,33 +238,33 @@
             const resultsDiv = document.getElementById('results');
             let html = '';
             
-            portResults.forEach(portData => {
-                if (portData.fastTests.length > 0) {
-                    html += `<div class="port-section">
-                        <h5>Port ${portData.port} 
-                            <a href="${getLinkUrl(portData.ip, portData.port)}" target="_blank">
-                                → ${getLinkUrl(portData.ip, portData.port)}
-                            </a>
-                        </h5>
-                        <table>
-                            <tr><th>Test</th><th>Time (ms)</th><th>Status</th></tr>`;
-                    
-                    portData.fastTests.forEach(t => {
-                        html += `<tr class="fast-row">
-                            <td><a href="${getLinkUrl(portData.ip, portData.port)}" target="_blank">${t.name}</a></td>
-                            <td>${t.time.toFixed(0)}</td>
-                            <td class="success">SUCCESS</td>
-                        </tr>`;
-                    });
-                    
-                    html += `</table></div>`;
-                }
+            const fastPorts = portResults.filter(r => r.fastTests.length > 0);
+            
+            fastPorts.forEach(portData => {
+                html += `<div class="port-section">
+                    <h5>Port ${portData.port} 
+                        <a href="${getLinkUrl(portData.ip, portData.port)}" target="_blank">
+                            → ${getLinkUrl(portData.ip, portData.port)}
+                        </a>
+                    </h5>
+                    <table>
+                        <tr><th>Test</th><th>Time (ms)</th><th>Status</th></tr>`;
+                
+                portData.fastTests.forEach(t => {
+                    html += `<tr class="fast-row">
+                        <td><a href="${getLinkUrl(portData.ip, portData.port)}" target="_blank">${t.name}</a></td>
+                        <td>${t.time.toFixed(0)}</td>
+                        <td class="success">SUCCESS</td>
+                    </tr>`;
+                });
+                
+                html += `</table></div>`;
             });
             
             if (html) {
-                const ipSection = `<div class="ip-section">
-                    <h4>IP ${ip} (${portResults.filter(r => r.fastTests.length > 0).length} fast ports)
-                        <a href="${getLinkUrl(ip, portResults[0]?.port || 80)}" target="_blank">→ ${ip}</a>
+                const ipSection = `<div class="ip-section" data-ip="${ip}">
+                    <h4>IP ${ip} (${fastPorts.length} fast ports)
+                        <a href="${getLinkUrl(ip, fastPorts[0]?.port || 80)}" target="_blank">→ ${ip}</a>
                     </h4>
                     ${html}
                 </div>`;
