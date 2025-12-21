@@ -84,16 +84,16 @@
         let maxTimeout = 3000;
         let isScanning = false;
 
-        // Simple HTTPS favicon timing
+        // Simple HTTPS timing
         async function testPort(ip, port, timeoutMs) {
             const start = performance.now();
             try {
-                const url = `https://${ip}:${port}/favicon.ico`;
+                const url = `https://${ip}:${port}/`;
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
                 
                 await fetch(url, {
-                    method: 'HEAD',
+                    method: 'GET',
                     signal: controller.signal,
                     mode: 'no-cors',
                     cache: 'no-cache'
