@@ -22,10 +22,10 @@
 </head>
 <body>
     <h1>Fast CIDR HTTPS Multi-Port Timing Scanner</h1>
-    <p>Enter CIDR (e.g., 192.168.1.0/24) and ports. 3 tests only, hides IPs with no fast results.</p>
+    <p>Enter CIDR (e.g., 192.168.68.0/24) and ports. 3 tests only, hides IPs with no fast results.</p>
     
     <input type="text" id="cidr" placeholder="192.168.68.0/24" value="192.168.68.0/24">
-    <input type="text" id="ports" placeholder="80,443,8443,8080" value="80,443,8006">
+    <input type="text" id="ports" placeholder="80,443,8006" value="80,443,8006">
     <button onclick="runCidrScanner()">Scan CIDR</button>
     
     <div id="results"></div>
@@ -206,7 +206,7 @@
                     html = ipHtml + html; // Prepend to show newest first
                 }
                 resultsDiv.innerHTML = `<h3>Scanning... ${visibleIps} IPs with results (${ips.indexOf(ip) + 1}/${ips.length})</h3>` + html;
-                await new Promise(resolve => setTimeout(resolve, 400));
+                await new Promise(resolve => setTimeout(resolve, 200));
             }
             
             resultsDiv.innerHTML = `<h3>Complete: ${visibleIps} IPs with fast services found</h3>` + html;
