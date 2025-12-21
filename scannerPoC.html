@@ -3,355 +3,247 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Interactive Subnet Port Timing Scanner</title>
+    <title>Fast CIDR HTTPS Port Scanner</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; background: #f8f9fa; color: #333; }
-        .input-panel { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        input[type="text"], input[type="number"] { padding: 12px; border: 2px solid #e0e6ed; border-radius: 8px; font-size: 16px; box-sizing: border-box; }
-        input[type="range"] { width: 100%; padding: 10px 0; }
-        .slider-container { display: flex; align-items: center; gap: 15px; margin: 15px 0; }
-        .slider-value { font-weight: 600; font-size: 18px; min-width: 80px; text-align: center; }
-        button { background: #007bff; color: white; padding: 12px 24px; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; margin: 10px 5px 0 0; }
-        button:disabled { background: #6c757d; cursor: not-allowed; }
-        button:hover:not(:disabled) { background: #0056b3; }
-        .status { margin-top: 10px; padding: 10px; border-radius: 6px; background: #d4edda; border: 1px solid #c3e6cb; }
-        .results { display: flex; flex-direction: column; gap: 15px; margin-top: 20px; max-height: 60vh; overflow-y: auto; }
-        .host-box { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); border-left: 5px solid #007bff; transition: all 0.3s; }
-        .host-box.visible { border-left-color: #28a745; }
-        .host-box.hidden { display: none; }
-        .host-box.deep-scanned { border-left-color: #17a2b8 !important; }
-        .host-ip { font-size: 24px; font-weight: 600; margin-bottom: 15px; color: #1a1a1a; }
-        .initial-timing { font-size: 18px; font-weight: 500; color: #dc3545; font-family: monospace; margin-bottom: 10px; text-decoration: none; display: block; }
-        .initial-timing.live { color: #28a745; }
-        .port-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 15px; }
-        .port-pill { padding: 8px 12px; border-radius: 20px; font-weight: 500; font-size: 14px; text-align: center; font-family: monospace; }
-        .port-pill.live { background: linear-gradient(135deg, #28a745, #20c997); color: white; }
-        .port-pill.dead { background: #6c757d; color: white; opacity: 0.7; }
-        .legend { display: flex; flex-wrap: wrap; gap: 20px; font-size: 14px; margin-top: 20px; }
-        .legend-color { width: 20px; height: 20px; border-radius: 50%; }
-        .concurrency-display { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
-        #initialTimeout { width: 120px; }
-        .input-row { display: flex; gap: 15px; align-items: end; flex-wrap: wrap; }
-        .input-col { flex: 1; min-width: 200px; }
-        progress { width: 100%; height: 8px; border-radius: 4px; }
+        body { font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
+        input { width: 250px; padding: 8px; margin: 10px 5px; }
+        button { padding: 10px 20px; background: #007bff; color: white; border: none; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .ip-section { margin: 30px 0; border: 2px solid #007bff; padding: 20px; }
+        .port-section { margin: 15px 0; border: 1px solid #ddd; padding: 10px; }
+        table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+        th, td { padding: 8px; text-align: left; border: 1px solid #ddd; }
+        th { background: #f1f1f1; }
+        .fast-row { cursor: pointer; background: #e8f5e8; }
+        .fast-row:hover { background: #d4edda; }
+        a { text-decoration: none; color: inherit; }
+        .likely-up { font-weight: bold; color: #28a745; }
+        .likely-down { font-weight: bold; color: #dc3545; }
+        .websocket-only { background: #fff3cd; border-left: 4px solid #ffc107; }
     </style>
 </head>
 <body>
-    <h1>Interactive Subnet Port Timing Scanner</h1>
+    <h1>Fast CIDR HTTPS Multi-Port Timing Scanner</h1>
+    <p>Enter CIDR (e.g., 192.168.1.0/24) and ports. 2-3x faster: 500ms timeouts, parallel ports.</p>
     
-    <div class="input-panel">
-        <div class="input-row">
-            <div class="input-col">
-                <label for="subnet">Subnet (CIDR):</label>
-                <input type="text" id="subnet" value="192.168.68.0/24">
-            </div>
-            <div class="input-col">
-                <label for="initialTimeout">Timeout (ms):</label>
-                <input type="number" id="initialTimeout" value="2000" min="500" max="5000">
-            </div>
-        </div>
-        <div class="concurrency-display">
-            <label for="concurrency">Concurrency:</label>
-            <input type="range" id="concurrency" min="5" max="50" value="20">
-            <span id="concurrencyValue">20</span>
-        </div>
-        <button id="phase1Btn">Phase 1: Port 80 Sweep</button>
-        <button id="phase2Btn" disabled>Phase 2: Deep Scan Visible</button>
-        <div id="status"></div>
-        <progress id="progress" value="0" max="100" style="display: none;"></progress>
-    </div>
-
-    <div class="slider-container">
-        <label>Threshold: </label>
-        <input type="range" id="thresholdSlider" min="0" max="100" value="100">
-        <span class="slider-value" id="thresholdValue">2000ms</span>
-        <span>Max: <span id="maxThreshold">2000</span>ms</span>
-    </div>
-
-    <div id="phase1Results" class="results"></div>
+    <input type="text" id="cidr" placeholder="192.168.1.0/24" value="192.168.1.0/24">
+    <input type="text" id="ports" placeholder="80,443,8443,8080" value="80,443,8443,8080">
+    <button onclick="runCidrScanner()">Scan CIDR</button>
     
-    <div class="legend">
-        <div class="legend-item"><span class="legend-color" style="background: #28a745;"></span>Live (<500ms error)</div>
-        <div class="legend-item"><span class="legend-color" style="background: #17a2b8;"></span>Deep scanned</div>
-        <div class="legend-item"><span class="legend-color" style="background: linear-gradient(135deg, #28a745, #20c997);"></span>Live port</div>
-    </div>
+    <div id="results"></div>
 
     <script>
-        const PORT_80 = 80;
-        const WEB_PORTS = [443, 8443, 8000, 8006, 8080, 8008];
-        let phase1Results = [];
-        let maxTimeout = 2000;
-        let isScanning = false;
-        const LIVE_THRESHOLD = 500; // ms - fast error = live host
+        const TIMEOUT = 500;      // ↓ from 1000ms
+        const FAST_THRESHOLD = 200;
 
-        // COMPLETE rethink: Abort after 2s, catch sub-500ms errors = LIVE
-        function testPort(ip, port) {
-            return new Promise((resolve) => {
-                const start = performance.now();
-                const url = `https://${ip}:${port}/favicon.ico?t=${Date.now()}`;
-                const img = new Image();
-                let completed = false;
-
-                // Aggressive 2s timeout
-                const timeoutId = setTimeout(() => {
-                    if (!completed) {
-                        completed = true;
-                        resolve({
-                            time: Math.round(maxTimeout),
-                            status: 'timeout',
-                            isLive: false
-                        });
-                    }
-                }, maxTimeout);
-
-                img.onload = () => {
-                    if (!completed) {
-                        completed = true;
-                        clearTimeout(timeoutId);
-                        resolve({
-                            time: Math.round(performance.now() - start),
-                            status: 'loaded',
-                            isLive: true
-                        });
-                    }
-                };
-
-                img.onerror = () => {
-                    if (!completed) {
-                        completed = true;
-                        clearTimeout(timeoutId);
-                        const elapsed = Math.round(performance.now() - start);
-                        resolve({
-                            time: elapsed,
-                            status: 'error',
-                            isLive: elapsed < LIVE_THRESHOLD // FAST error = LIVE host
-                        });
-                    }
-                };
-
-                img.src = url;
-            });
-        }
-
-        function parseSubnet(cidr) {
-            const [net, bits] = cidr.split('/');
-            const [a, b, c, d] = net.match(/\d+/g).map(Number);
-            const mask = ~((1 << (32 - bits)) - 1);
+        // Parse CIDR to IP array (synchronous)
+        function parseCidr(cidr) {
+            const [network, bits] = cidr.split('/');
+            const [a, b, c, d] = network.split('.').map(Number);
+            const mask = (~0) << (32 - bits);
             const start = (a << 24 | b << 16 | c << 8 | d) & mask;
-            const end = start | (~mask >>> 0);
+            const end = start | (~mask & 0xFFFFFFFF);
             const ips = [];
             for (let i = start; i <= end; i++) {
-                const ip = [(i>>>24)&255, (i>>>16)&255, (i>>>8)&255, i&255].join('.');
+                const ip = [
+                    (i >> 24) & 255,
+                    (i >> 16) & 255,
+                    (i >> 8) & 255,
+                    i & 255
+                ].join('.');
                 ips.push(ip);
             }
             return ips;
         }
 
-        // BATCHED semaphore - processes in waves for smoother UI
-        class BatchedSemaphore {
-            constructor(concurrency, batchSize = 10) {
-                this.concurrency = concurrency;
-                this.batchSize = batchSize;
-                this.queue = [];
-                this.active = 0;
-                this.currentBatch = 0;
-            }
+        // FAST: Parallel ports (4 at a time) per IP
+        async function portScanner(ip, portsString) {
+            const ports = portsString.split(',').map(p => p.trim()).filter(p => p);
+            const allResults = [];
             
-            async acquire() {
-                return new Promise(resolve => {
-                    this.queue.push(resolve);
-                    this._processBatch();
+            // Process 4 ports concurrently (browser connection limit)
+            for (let i = 0; i < ports.length; i += 4) {
+                const chunk = ports.slice(i, i + 4);
+                const chunkResults = await Promise.allSettled(
+                    chunk.map(port => testPort(ip, parseInt(port)))
+                );
+                allResults.push(...chunkResults);
+                await new Promise(r => setTimeout(r, 50)); // Tiny yield
+            }
+            return allResults;
+        }
+
+        async function testPort(host, port) {
+            const target = `https://${host}:${port}`;
+            const tests = await Promise.allSettled([
+                testFetch(target),
+                testTCP(target),     // Replaced slow Image
+                testXHR(target),
+                testWebSocket(host, port)
+            ]);
+            return { port, host, tests };
+        }
+
+        // FAST: Native AbortSignal.timeout()
+        async function testFetch(target) {
+            const start = performance.now();
+            try {
+                const response = await fetch(target, {
+                    method: 'HEAD',
+                    signal: AbortSignal.timeout(TIMEOUT),
+                    cache: 'no-cache'
                 });
+                return { name: 'Fetch HEAD', time: performance.now() - start, status: response.status, success: true };
+            } catch (e) {
+                return { name: 'Fetch HEAD', time: performance.now() - start, error: e.name, success: false };
             }
-            
-            release() {
-                this.active--;
-                this._processBatch();
+        }
+
+        // FAST: TCP-style connect (replaces slow Image)
+        async function testTCP(target) {
+            const start = performance.now();
+            try {
+                await fetch(target, {
+                    method: 'HEAD',
+                    signal: AbortSignal.timeout(TIMEOUT),
+                    mode: 'no-cors'  // Faster, skips CORS
+                });
+                return { name: 'TCP Connect', time: performance.now() - start, success: true };
+            } catch {
+                return { name: 'TCP Connect', time: performance.now() - start, success: false };
             }
-            
-            _processBatch() {
-                if (this.active >= this.concurrency || this.queue.length === 0) return;
-                
-                const batchEnd = Math.min(this.currentBatch + this.batchSize, this.queue.length);
-                for (let i = this.currentBatch; i < batchEnd; i++) {
-                    if (this.active < this.concurrency) {
-                        this.active++;
-                        this.queue.shift()();
+        }
+
+        async function testXHR(target) {
+            return new Promise((resolve) => {
+                const start = performance.now();
+                const xhr = new XMLHttpRequest();
+                xhr.timeout = TIMEOUT;
+                xhr.open('HEAD', target, true);
+                xhr.onreadystatechange = () => {
+                    if (xhr.readyState === 4) {
+                        const end = performance.now();
+                        resolve({ 
+                            name: 'XHR HEAD', 
+                            time: end - start, 
+                            status: xhr.status, 
+                            success: xhr.status >= 200 && xhr.status < 400 
+                        });
                     }
-                }
-                this.currentBatch = batchEnd;
-            }
-        }
-
-        async function phase1Sweep() {
-            const subnetInput = document.getElementById('subnet').value.trim();
-            const concurrency = parseInt(document.getElementById('concurrency').value);
-            maxTimeout = parseInt(document.getElementById('initialTimeout').value);
-
-            const btn = document.getElementById('phase1Btn');
-            const statusEl = document.getElementById('status');
-            const progressEl = document.getElementById('progress');
-
-            isScanning = true;
-            btn.disabled = true;
-            statusEl.textContent = `Phase 1: Streaming port 80 (${concurrency}x)...`;
-            progressEl.style.display = 'block';
-            progressEl.value = 0;
-
-            try {
-                const ips = parseSubnet(subnetInput);
-                const semaphore = new BatchedSemaphore(concurrency);
-                phase1Results = [];
-
-                const promises = ips.map(async (ip, index) => {
-                    await semaphore.acquire();
-                    const result = await testPort(ip, PORT_80);
-                    semaphore.release();
-                    
-                    // IMMEDIATE live update
-                    phase1Results.push({ ip, ...result });
-                    phase1Results.sort((a, b) => a.time - b.time);
-                    renderPhase1Results();
-                    
-                    progressEl.value = ((index + 1) / ips.length) * 100;
-                    statusEl.textContent = `${index + 1}/${ips.length} (${result.time}ms ${result.isLive ? 'LIVE' : 'DEAD'})`;
-                });
-
-                await Promise.all(promises);
-                
-                const lives = phase1Results.filter(r => r.isLive).length;
-                statusEl.innerHTML = `✓ Phase 1 complete! ${lives} LIVE hosts. <strong>Drag threshold</strong>`;
-                document.getElementById('phase2Btn').disabled = false;
-                document.getElementById('thresholdSlider').max = 100;
-                document.getElementById('maxThreshold').textContent = maxTimeout;
-                
-            } catch (error) {
-                statusEl.textContent = `Error: ${error.message}`;
-            } finally {
-                isScanning = false;
-                btn.disabled = false;
-                btn.textContent = 'Phase 1: Port 80 Sweep ✓';
-            }
-        }
-
-        function renderPhase1Results() {
-            const resultsEl = document.getElementById('phase1Results');
-            resultsEl.innerHTML = phase1Results.map(host => `
-                <div class="host-box hidden" data-time="${host.time}" data-ip="${host.ip}">
-                    <div class="host-ip">${host.ip}</div>
-                    <a href="http://${host.ip}:80/" target="_blank" class="initial-timing ${host.isLive ? 'live' : ''}">
-                        Port 80: <strong>${host.time}ms</strong> ${host.isLive ? '🟢 LIVE' : '⏰ DEAD'}
-                    </a>
-                </div>
-            `).join('');
-        }
-
-        async function phase2Deepscan() {
-            const visibleBoxes = document.querySelectorAll('.host-box:not(.hidden)');
-            if (visibleBoxes.length === 0) {
-                alert('No visible candidates! Adjust threshold.');
-                return;
-            }
-
-            const candidates = Array.from(visibleBoxes).map(box => {
-                const ip = box.dataset.ip;
-                return phase1Results.find(r => r.ip === ip);
+                };
+                xhr.ontimeout = () => {
+                    const end = performance.now();
+                    resolve({ name: 'XHR HEAD', time: end - start, error: 'Timeout', success: false });
+                };
+                xhr.onerror = () => {
+                    const end = performance.now();
+                    resolve({ name: 'XHR HEAD', time: end - start, error: 'Network Error', success: false });
+                };
+                xhr.send();
             });
+        }
 
-            const concurrency = parseInt(document.getElementById('concurrency').value);
-            const semaphore = new BatchedSemaphore(concurrency);
+        async function testWebSocket(host, port) {
+            return new Promise((resolve) => {
+                const start = performance.now();
+                try {
+                    const ws = new WebSocket(`wss://${host}:${port}`);
+                    ws.onopen = () => {
+                        const end = performance.now();
+                        ws.close();
+                        resolve({ name: 'WebSocket', time: end - start, success: true });
+                    };
+                    ws.onerror = () => {
+                        const end = performance.now();
+                        resolve({ name: 'WebSocket', time: end - start, error: 'Failed', success: false });
+                    };
+                    setTimeout(() => {
+                        const end = performance.now();
+                        resolve({ name: 'WebSocket', time: end - start, error: 'Timeout', success: false });
+                    }, TIMEOUT);
+                } catch (e) {
+                    const end = performance.now();
+                    resolve({ name: 'WebSocket', time: end - start, error: e.message, success: false });
+                }
+            });
+        }
 
-            document.getElementById('phase2Btn').disabled = true;
-            const statusEl = document.getElementById('status');
-            statusEl.textContent = `Phase 2: Streaming ${candidates.length} deep scans...`;
+        function getLinkUrl(host, port) {
+            return port === 80 ? `http://${host}:${port}/` : `https://${host}:${port}/`;
+        }
 
-            try {
-                const promises = candidates.map(async (cand) => {
-                    await semaphore.acquire();
-                    try {
-                        const portTimes = { 80: { time: cand.time, isLive: cand.isLive } };
-                        
-                        for (const port of WEB_PORTS) {
-                            const result = await testPort(cand.ip, port);
-                            portTimes[port] = result;
-                            updateHostBox(cand.ip, portTimes);
-                            statusEl.textContent = `Phase 2: ${cand.ip}:${port} ${result.time}ms ${result.isLive ? 'LIVE' : 'DEAD'}`;
-                            await new Promise(r => setTimeout(r, 30)); // Smooth streaming
+        function displayIpResults(ip, allResults) {
+            const fastTestsAll = [];
+            let websocketOnly = true;
+            
+            allResults.forEach(portData => {
+                if (portData.status === 'fulfilled') {
+                    const data = portData.value;
+                    data.tests.forEach(testResult => {
+                        if (testResult.status === 'fulfilled') {
+                            const t = testResult.value;
+                            if (t.time < FAST_THRESHOLD) {
+                                t.success = true;
+                                fastTestsAll.push({...t, port: data.port, host: data.host});
+                                if (t.name !== 'WebSocket') websocketOnly = false;
+                            }
                         }
-                        
-                    } finally {
-                        semaphore.release();
-                    }
-                });
-
-                await Promise.all(promises);
-                statusEl.textContent = '✓ Phase 2 complete!';
-            } finally {
-                document.getElementById('phase2Btn').disabled = false;
-                document.getElementById('phase2Btn').textContent = 'Phase 2: Deep Scan ✓';
-            }
-        }
-
-        function updateHostBox(ip, portTimes) {
-            const box = document.querySelector(`[data-ip="${ip}"]`);
-            if (!box) return;
-
-            box.classList.add('deep-scanned');
-            
-            const portGrid = document.createElement('div');
-            portGrid.className = 'port-grid';
-            
-            WEB_PORTS.forEach(port => {
-                const result = portTimes[port];
-                const statusClass = result.isLive ? 'live' : 'dead';
-                const icon = result.isLive ? '🟢' : '⏰';
-                
-                const pill = document.createElement('div');
-                pill.className = `port-pill ${statusClass}`;
-                pill.innerHTML = `${port}<br>${result.time}ms ${icon}`;
-                portGrid.appendChild(pill);
-            });
-            
-            const existingGrid = box.querySelector('.port-grid');
-            if (existingGrid) existingGrid.remove();
-            box.appendChild(portGrid);
-        }
-
-        function updateThreshold() {
-            const slider = document.getElementById('thresholdSlider');
-            const value = (slider.value / 100) * maxTimeout;
-            document.getElementById('thresholdValue').textContent = Math.round(value) + 'ms';
-            
-            document.querySelectorAll('.host-box').forEach(box => {
-                const time = parseInt(box.dataset.time);
-                if (time <= value) {
-                    box.style.display = 'block';
-                    box.classList.add('visible');
-                    box.classList.remove('hidden');
-                } else {
-                    box.style.display = 'none';
-                    box.classList.remove('visible');
-                    box.classList.add('hidden');
+                    });
                 }
             });
+
+            let html = `<div class="ip-section">
+                <h3>${ip}</h3>`;
+            
+            if (fastTestsAll.length === 0) {
+                html += '<p>No fast tests (&lt;200ms) found. LIKELY DOWN.</p>';
+            } else {
+                fastTestsAll.forEach(t => {
+                    const className = (t.name === 'WebSocket' && websocketOnly) ? 'websocket-only' : '';
+                    html += `<div class="port-section ${className}">
+                        <table>
+                            <tr class="fast-row">
+                                <td><a href="${getLinkUrl(t.host || ip, t.port)}" target="_blank">${t.name} (Port ${t.port})</a></td>
+                                <td>${t.time.toFixed(0)}ms</td>
+                                <td class="success">SUCCESS</td>
+                            </tr>
+                        </table>
+                    </div>`;
+                });
+                
+                const status = websocketOnly ? 'LIKELY DOWN (WebSocket only)' : 'LIKELY UP';
+                html += `<div class="result ${websocketOnly ? '' : 'success'}">
+                    <span class="${websocketOnly ? 'likely-down' : 'likely-up'}">${status}</span> 
+                    (${fastTestsAll.length} fast tests)
+                </div>`;
+            }
+            
+            html += '</div>';
+            return html;
         }
 
-        // Event listeners
-        document.getElementById('phase1Btn').addEventListener('click', phase1Sweep);
-        document.getElementById('phase2Btn').addEventListener('click', phase2Deepscan);
-        document.getElementById('thresholdSlider').addEventListener('input', updateThreshold);
-        document.getElementById('concurrency').addEventListener('input', function() {
-            document.getElementById('concurrencyValue').textContent = this.value;
-        });
-        document.getElementById('initialTimeout').addEventListener('input', function() {
-            maxTimeout = parseInt(this.value);
-            document.getElementById('maxThreshold').textContent = maxTimeout;
-            if (phase1Results.length > 0) updateThreshold();
-        });
+        // Sequential IPs (per your requirement), parallel ports
+        async function runCidrScanner() {
+            const cidr = document.getElementById('cidr').value.trim();
+            const ports = document.getElementById('ports').value.trim();
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<h3>Scanning CIDR (parallel ports, sequential IPs)...</h3>';
 
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.get('subnet')) {
-            document.getElementById('subnet').value = urlParams.get('subnet');
+            const ips = parseCidr(cidr);
+            let html = '';
+            
+            for (const ip of ips) {
+                try {
+                    const results = await portScanner(ip, ports);
+                    html += displayIpResults(ip, results);
+                    resultsDiv.innerHTML = `<h3>Scanning ${ip}... (${ips.indexOf(ip) + 1}/${ips.length})</h3>` + html;
+                    await new Promise(resolve => setTimeout(resolve, 200)); // Reduced pause
+                } catch (e) {
+                    html += `<div class="ip-section"><h3>${ip}</h3><p>Scan failed</p></div>`;
+                }
+            }
+            
+            resultsDiv.innerHTML = `<h3>Complete: ${ips.length} IPs scanned</h3>` + html;
         }
     </script>
 </body>
