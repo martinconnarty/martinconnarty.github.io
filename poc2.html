@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CIDR HTTPS Multi-Port Timing Scanner</title>
+    <title>CIDR HTTPS Multi-Port Timing Checker</title>
     <style>
         body { font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
-        input { width: 300px; padding: 8px; margin: 10px 5px; }
+        input { width: 250px; padding: 8px; margin: 10px 5px; }
         button { padding: 10px 20px; background: #007bff; color: white; border: none; cursor: pointer; }
         button:hover { background: #0056b3; }
         .result { margin: 15px 0; padding: 10px; border-left: 4px solid #007bff; background: #f8f9fa; }
@@ -15,74 +15,98 @@
         table { width: 100%; border-collapse: collapse; margin: 10px 0; }
         th, td { padding: 8px; text-align: left; border: 1px solid #ddd; }
         th { background: #f1f1f1; }
-        .port-section { margin: 20px 0; border: 1px solid #ddd; padding: 15px; }
-        .ip-section { margin: 30px 0; border: 2px solid #007bff; padding: 20px; background: #f8f9fa; }
+        .ip-section { margin: 20px 0; border: 1px solid #ddd; padding: 15px; }
+        .port-section { margin: 15px 0; border: 1px solid #ccc; padding: 10px; }
         .likely-up { font-weight: bold; color: #28a745; }
-        .likely-filtered { font-weight: bold; color: #ffc107; }
         .fast-row { cursor: pointer; background: #e8f5e8; }
         .fast-row:hover { background: #d4edda; }
         a { text-decoration: none; color: inherit; }
-        .progress { margin: 20px 0; font-weight: bold; }
-        .batch-info { color: #666; font-size: 0.9em; }
+        .progress { margin: 10px 0; font-weight: bold; }
+        .progress-bar { width: 100%; height: 20px; background: #e0e0e0; border-radius: 10px; overflow: hidden; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, #007bff, #28a745); transition: width 0.3s; }
+        .progress-text { margin: 5px 0; }
+        .batch-complete { color: #28a745; font-weight: bold; }
     </style>
 </head>
 <body>
-    <h1>CIDR HTTPS Multi-Port Timing Scanner</h1>
-    <p>Enter CIDR (e.g., 192.168.1.0/24) and comma-separated ports. Batches 16 IPs simultaneously. <500ms=SUCCESS, no solo WebSocket.</p>
+    <h1>CIDR HTTPS Multi-Port Timing Checker</h1>
+    <p>Enter CIDR (e.g., 192.168.1.0/24) and comma-separated ports. Batches of 16 IPs, 1s timeout, <500ms=CLICKABLE SUCCESS.</p>
     
     <input type="text" id="cidr" placeholder="192.168.1.0/24" value="192.168.1.0/24">
-    <input type="text" id="ports" placeholder="80,443,8443,8080" value="80,443,8443,8080">
-    <button onclick="runTests()">Scan CIDR</button>
+    <input type="text" id="ports" placeholder="80,443,8443,8080" value="80,443,8080">
+    <button onclick="runTests()">Run Tests</button>
     
     <div id="results"></div>
 
     <script>
-        const TIMEOUT = 2000;
+        const TIMEOUT = 1000; // 1 second
         const FAST_THRESHOLD = 500;
         const BATCH_SIZE = 16;
+
+        function parseCIDR(cidr) {
+            const [ip, bits] = cidr.split('/');
+            const [a, b, c, d] = ip.split('.').map(Number);
+            const ips = [];
+            const max = Math.pow(2, 32 - bits) - 1;
+            
+            for (let i = 0; i < max; i++) {
+                const num = (a << 24) | (b << 16) | (c << 8) | d + i;
+                const ip = [
+                    (num >> 24) & 255,
+                    (num >> 16) & 255,
+                    (num >> 8) & 255,
+                    num & 255
+                ].join('.');
+                ips.push(ip);
+            }
+            return ips;
+        }
 
         async function runTests() {
             const cidr = document.getElementById('cidr').value.trim();
             const portsInput = document.getElementById('ports').value.trim();
             const ports = portsInput.split(',').map(p => parseInt(p.trim())).filter(p => p);
-            const resultsDiv = document.getElementById('results');
-            resultsDiv.innerHTML = '<h3>Parsing CIDR and scanning in batches of 16...</h3><div class="progress">Generating IP list...</div>';
-
             const ips = parseCIDR(cidr);
             const batches = chunkArray(ips, BATCH_SIZE);
+            const totalTests = ips.length * ports.length;
             
-            resultsDiv.innerHTML += `<div class="batch-info">Found ${ips.length} IPs in ${batches.length} batches</div>`;
-            
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = `<h3>Scanning ${ips.length} IPs x ${ports.length} ports in ${batches.length} batches (1s timeout)...</h3>
+                <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+                <div class="progress-text" id="progressText">Batch 0/${batches.length} - Scanning IP: 0.0.0.0 (0/${totalTests})</div>`;
+
             const allResults = [];
-            for (let i = 0; i < batches.length; i++) {
-                resultsDiv.innerHTML += `<div class="progress">Batch ${i+1}/${batches.length} (${batches[i].length} IPs)...</div>`;
+            let completed = 0;
+
+            for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+                const batch = batches[batchIdx];
+                const batchStart = completed;
+                
+                resultsDiv.innerHTML += `<div class="progress">Batch ${batchIdx + 1}/${batches.length} (${batch.length} IPs)</div>`;
+                
+                // Wait for entire batch to complete before next
                 const batchResults = await Promise.allSettled(
-                    batches[i].map(ip => testIP(ip, ports))
+                    batch.map(ip => testIP(ip, ports))
                 );
-                allResults.push(...batchResults);
+                
+                // Process batch results
+                batchResults.forEach(result => {
+                    if (result.status === 'fulfilled') {
+                        allResults.push(result.value);
+                        displayIPResults(result.value);
+                    }
+                });
+                
+                completed += batch.length * ports.length;
+                const percent = (completed / totalTests * 100).toFixed(1);
+                document.getElementById('progressFill').style.width = percent + '%';
+                document.getElementById('progressText').textContent = 
+                    `Batch ${batchIdx + 1}/${batches.length} COMPLETE - Scanning IP: ${batch[batch.length-1]} (${completed}/${totalTests})`;
+                
+                resultsDiv.innerHTML += `<div class="batch-complete">✓ Batch ${batchIdx + 1} complete</div>`;
             }
-
-            displayResults(allResults);
-        }
-
-        function parseCIDR(cidr) {
-            const [network, bits] = cidr.split('/');
-            const [a, b, c, d] = network.split('.').map(Number);
-            const ips = [];
-            const max = Math.pow(2, 32 - bits) - 1;
             
-            for (let i = 0; i < max; i++) {
-                const ipNum = (a << 24) | (b << 16) | (c << 8) | d;
-                const newIpNum = ipNum + i;
-                const ip = [
-                    (newIpNum >> 24) & 255,
-                    (newIpNum >> 16) & 255,
-                    (newIpNum >> 8) & 255,
-                    newIpNum & 255
-                ].join('.');
-                ips.push(ip);
-            }
-            return ips;
+            resultsDiv.innerHTML += '<p>🔥 Full scan complete!</p>';
         }
 
         function chunkArray(array, size) {
@@ -93,25 +117,37 @@
             return chunks;
         }
 
-        async function testIP(host, ports) {
+        async function testIP(ip, ports) {
             const ipResults = await Promise.allSettled(
-                ports.map(port => testPort(host, port))
+                ports.map(port => testIPPort(ip, port))
             );
-            return { host, ports, ipResults };
+            return { ip, ports, ipResults };
         }
 
-        async function testPort(host, port) {
-            const target = `https://${host}:${port}`;
+        async function testIPPort(ip, port) {
+            const target = `https://${ip}:${port}`;
             const tests = await Promise.allSettled([
                 testFetch(target),
                 testImage(target),
                 testXHR(target),
-                testWebSocket(host, port)
+                testWebSocket(ip, port)
             ]);
-            return { port, host, tests };
+            const fastTests = [];
+            
+            tests.forEach(testResult => {
+                if (testResult.status === 'fulfilled') {
+                    const t = testResult.value;
+                    if (t.time < FAST_THRESHOLD && t.name !== 'WebSocket') {
+                        t.success = true;
+                        fastTests.push(t);
+                    }
+                }
+            });
+            
+            return { ip, port, target, tests, fastTests };
         }
 
-        // All test functions unchanged from previous version
+        // All test functions unchanged
         async function testFetch(target) {
             const start = performance.now();
             try {
@@ -206,87 +242,54 @@
             });
         }
 
-        function getLinkUrl(host, port) {
-            return port === 80 ? `http://${host}:${port}/` : `https://${host}:${port}/`;
+        function getLinkUrl(ip, port) {
+            return port === 80 ? `http://${ip}:${port}/` : `https://${ip}:${port}/`;
         }
 
-        function displayResults(allResults) {
+        function displayIPResults(ipData) {
             const resultsDiv = document.getElementById('results');
-            let html = '<h3>Scan Results (<500ms = SUCCESS, no solo WebSocket)</h3>';
-            let foundAny = false;
-
-            allResults.forEach(result => {
-                if (result.status === 'fulfilled') {
-                    const ipData = result.value;
-                    let validPorts = [];
-                    
-                    ipData.ipResults.forEach(portResult => {
-                        if (portResult.status === 'fulfilled') {
-                            const portData = portResult.value;
-                            const fastTests = [];
-                            
-                            portData.tests.forEach(testResult => {
-                                if (testResult.status === 'fulfilled') {
-                                    const t = testResult.value;
-                                    if (t.time < FAST_THRESHOLD && t.name !== 'WebSocket') {
-                                        t.success = true;
-                                        fastTests.push(t);
-                                    }
-                                }
-                            });
-                            
-                            // Show port if has non-WebSocket fast tests
-                            if (fastTests.length > 0 || 
-                                (fastTests.length === 1 && fastTests[0].name !== 'WebSocket')) {
-                                validPorts.push({ port: portData.port, fastTests });
-                            }
-                        }
-                    });
-                    
-                    if (validPorts.length > 0) {
-                        foundAny = true;
-                        html += `<div class="ip-section">
-                            <h3>${ipData.host} 
-                                <a href="${getLinkUrl(ipData.host, validPorts[0].port)}" target="_blank">
-                                    → Services Found
-                                </a>
-                            </h3>`;
-                        
-                        validPorts.forEach(portData => {
-                            html += `<div class="port-section">
-                                <h4>Port ${portData.port}
-                                    <a href="${getLinkUrl(ipData.host, portData.port)}" target="_blank">
-                                        → ${getLinkUrl(ipData.host, portData.port)}
-                                    </a>
-                                </h4>`;
-                            
-                            html += `<table>
-                                <tr><th>Test</th><th>Time (ms)</th><th>Status</th></tr>`;
-                            
-                            portData.fastTests.forEach(t => {
-                                html += `<tr class="fast-row">
-                                    <td><a href="${getLinkUrl(ipData.host, portData.port)}" target="_blank">${t.name}</a></td>
-                                    <td>${t.time.toFixed(0)}</td>
-                                    <td class="success">SUCCESS</td>
-                                </tr>`;
-                            });
-                            
-                            html += `</table><div class="result success">
-                                <span class="likely-up">LIKELY UP</span> 
-                                (${portData.fastTests.length}/${portData.fastTests.length} fast tests)
-                            </div></div>`;
-                        });
-                        
-                        html += '</div>';
+            let html = '';
+            let validPorts = [];
+            
+            ipData.ipResults.forEach(portResult => {
+                if (portResult.status === 'fulfilled') {
+                    const portData = portResult.value;
+                    if (portData.fastTests.length > 0) {
+                        validPorts.push(portData);
                     }
                 }
             });
             
-            if (!foundAny) {
-                html += '<p>No responsive services found (<500ms, excluding solo WebSocket).</p>';
+            if (validPorts.length > 0) {
+                html += `<div class="ip-section" data-ip="${ipData.ip}">
+                    <h4>IP ${ipData.ip} (${validPorts.length} fast ports)
+                        <a href="${getLinkUrl(ipData.ip, validPorts[0].port)}" target="_blank">→ ${ipData.ip}</a>
+                    </h4>`;
+                
+                validPorts.forEach(portData => {
+                    html += `<div class="port-section">
+                        <h5>Port ${portData.port}
+                            <a href="${getLinkUrl(portData.ip, portData.port)}" target="_blank">
+                                → ${getLinkUrl(portData.ip, portData.port)}
+                            </a>
+                        </h5>
+                        <table>
+                            <tr><th>Test</th><th>Time (ms)</th><th>Status</th></tr>`;
+                    
+                    portData.fastTests.forEach(t => {
+                        html += `<tr class="fast-row">
+                            <td><a href="${getLinkUrl(portData.ip, portData.port)}" target="_blank">${t.name}</a></td>
+                            <td>${t.time.toFixed(0)}</td>
+                            <td class="success">SUCCESS</td>
+                        </tr>`;
+                    });
+                    
+                    html += `</table></div>`;
+                });
+                
+                html += '</div>';
+                resultsDiv.insertAdjacentHTML('beforeend', html);
             }
-            
-            resultsDiv.innerHTML = html;
         }
     </script>
 </body>
