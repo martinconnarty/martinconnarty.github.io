@@ -316,8 +316,15 @@ async function testPort(ip, port, timeoutMs) {
             
             document.querySelectorAll('.host-box').forEach(box => {
                 const time = parseInt(box.dataset.time);
-                box.classList.toggle('visible', time <= value);
-                box.classList.toggle('hidden', time > value);
+                if (time <= value) {
+                    box.style.display = 'block';  // Show completely
+                    box.classList.add('visible');
+                    box.classList.remove('hidden');
+                } else {
+                    box.style.display = 'none';   // Remove completely
+                    box.classList.remove('visible');
+                    box.classList.add('hidden');
+                }
             });
         }
 
