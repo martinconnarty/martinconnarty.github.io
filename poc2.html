@@ -119,54 +119,66 @@
 
         async function testIP(ip, ports) {
             const ipResults = await Promise.allSettled(
-                ports.map(port => testIPPort(ip, port))
+                ports.map(port => testIPPortSync(ip, port)) // Now synchronous per port
             );
             return { ip, ports, ipResults };
         }
 
-        function testIPPort(ip, port) {
-            const target = `https://${ip}:${port}`;
-            const tests = await Promise.allSettled([
-                testFetch(target),
-                testImage(target),
-                testXHR(target),
-                testWebSocket(ip, port)
-            ]);
-            const fastTests = [];
-            
-            tests.forEach(testResult => {
-                if (testResult.status === 'fulfilled') {
-                    const t = testResult.value;
-                    if (t.time < FAST_THRESHOLD && t.name !== 'WebSocket') {
-                        t.success = true;
-                        fastTests.push(t);
-                    }
-                }
+        // SYNCHRONOUS testIPPort - no async/await inside, returns resolved promise
+        function testIPPortSync(ip, port) {
+            return new Promise((resolve) => {
+                const target = `https://${ip}:${port}`;
+                const testPromises = [
+                    testFetch(target),
+                    testImage(target),
+                    testXHR(target),
+                    testWebSocket(ip, port)
+                ];
+                
+                Promise.allSettled(testPromises).then(tests => {
+                    const fastTests = [];
+                    
+                    tests.forEach(testResult => {
+                        if (testResult.status === 'fulfilled') {
+                            const t = testResult.value;
+                            if (t.time < FAST_THRESHOLD && t.name !== 'WebSocket') {
+                                t.success = true;
+                                fastTests.push(t);
+                            }
+                        }
+                    });
+                    
+                    resolve({ ip, port, target, tests, fastTests });
+                });
             });
-            
-            return { ip, port, target, tests, fastTests };
         }
 
         // All test functions unchanged
-        async function testFetch(target) {
-            const start = performance.now();
-            try {
-                const controller = new AbortController();
-                setTimeout(() => controller.abort(), TIMEOUT);
-                const response = await fetch(target, {
-                    method: 'HEAD',
-                    signal: controller.signal,
-                    cache: 'no-cache'
-                });
-                const end = performance.now();
-                return { name: 'Fetch HEAD', time: end - start, status: response.status, success: true };
-            } catch (e) {
-                const end = performance.now();
-                return { name: 'Fetch HEAD', time: end - start, error: e.name, success: false };
-            }
+        function testFetch(target) {
+            return new Promise((resolve) => {
+                const start = performance.now();
+                try {
+                    const controller = new AbortController();
+                    setTimeout(() => controller.abort(), TIMEOUT);
+                    fetch(target, {
+                        method: 'HEAD',
+                        signal: controller.signal,
+                        cache: 'no-cache'
+                    }).then(response => {
+                        const end = performance.now();
+                        resolve({ name: 'Fetch HEAD', time: end - start, status: response.status, success: true });
+                    }).catch(e => {
+                        const end = performance.now();
+                        resolve({ name: 'Fetch HEAD', time: end - start, error: e.name, success: false });
+                    });
+                } catch (e) {
+                    const end = performance.now();
+                    resolve({ name: 'Fetch HEAD', time: end - start, error: e.name, success: false });
+                }
+            });
         }
 
-        async function testImage(target) {
+        function testImage(target) {
             return new Promise((resolve) => {
                 const start = performance.now();
                 const img = new Image();
@@ -188,7 +200,7 @@
             });
         }
 
-        async function testXHR(target) {
+        function testXHR(target) {
             return new Promise((resolve) => {
                 const start = performance.now();
                 const xhr = new XMLHttpRequest();
@@ -217,7 +229,7 @@
             });
         }
 
-        async function testWebSocket(host, port) {
+        function testWebSocket(host, port) {
             return new Promise((resolve) => {
                 const start = performance.now();
                 try {
