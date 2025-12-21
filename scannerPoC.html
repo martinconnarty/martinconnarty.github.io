@@ -84,58 +84,38 @@
         let maxTimeout = 3000;
         let isScanning = false;
 
-// Register once in main script, then use:
-// navigator.serviceWorker.controller.postMessage({type: 'testPort', ip, port, timeoutMs})
-async function testPort(ip, port, timeoutMs) {
-            if (!navigator.serviceWorker.controller) throw new Error('SW not ready');
+        async function testPort(ip, port, timeoutMs) {
+            const start = performance.now();
+            const url = `https://${ip}:${port}/favicon.ico`;
             
+            // Preconnect hint + timing
+            const link = document.createElement('link');
+            link.rel = 'preconnect';
+            link.href = `https://${ip}:${port}`;
+            document.head.appendChild(link);
+        
+            // Measure navigation timing
+            const navTiming = performance.getEntriesByType('navigation')[0];
+            const navStart = navTiming?.fetchStart || start;
+        
+            // Fake navigation timing via small iframe
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            iframe.src = url;
+            document.body.appendChild(iframe);
+        
             return new Promise((resolve) => {
-                const channel = new MessageChannel();
-                channel.port1.onmessage = (e) => resolve(e.data);
-                navigator.serviceWorker.controller.postMessage(
-                    { type: 'testPort', ip, port, timeoutMs },
-                    [channel.port2]
-                );
+                setTimeout(() => {
+                    document.body.removeChild(iframe);
+                    document.head.removeChild(link);
+                    resolve({
+                        time: Math.round(performance.now() - navStart),
+                        status: 'connect',
+                        success: true
+                    });
+                }, timeoutMs);
             });
         }
-        
-                function parseSubnet(cidr) {
-                    const [net, bits] = cidr.split('/');
-                    const [a, b, c, d] = net.match(/\d+/g).map(Number);
-                    const mask = ~((1 << (32 - bits)) - 1);
-                    const start = (a << 24 | b << 16 | c << 8 | d) & mask;
-                    const end = start | (~mask >>> 0);
-                    const ips = [];
-                    for (let i = start; i <= end; i++) {
-                        const ip = [(i>>>24)&255, (i>>>16)&255, (i>>>8)&255, i&255].join('.');
-                        ips.push(ip);
-                    }
-                    return ips;
-                }
-        
-                class Semaphore {
-                    constructor(concurrency) {
-                        this.concurrency = concurrency;
-                        this.queue = [];
-                        this.active = 0;
-                    }
-                    async acquire() {
-                        return new Promise(resolve => {
-                            this.queue.push(resolve);
-                            this._processQueue();
-                        });
-                    }
-                    release() {
-                        this.active--;
-                        this._processQueue();
-                    }
-                    _processQueue() {
-                        while (this.active < this.concurrency && this.queue.length > 0) {
-                            this.active++;
-                            this.queue.shift()();
-                        }
-                    }
-                }
 
         // Phase 1: Stream results live
         async function phase1Sweep() {
