@@ -7,9 +7,12 @@
     <style>
         body { font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
         input { width: 250px; padding: 8px; margin: 10px 5px; }
-        button { padding: 10px 20px; background: #007bff; color: white; border: none; cursor: pointer; }
+        button { padding: 10px 20px; background: #007bff; color: white; border: none; cursor: pointer; margin: 5px; }
         button:hover { background: #0056b3; }
+        .toggle-btn { background: #6c757d; padding: 5px 15px; font-size: 14px; }
+        .toggle-btn.active { background: #28a745; }
         .ip-section { margin: 30px 0; border: 2px solid #007bff; padding: 20px; }
+        .ip-section.hidden { border-color: #6c757d; opacity: 0.6; }
         .port-section { margin: 15px 0; border: 1px solid #ddd; padding: 10px; }
         table { width: 100%; border-collapse: collapse; margin: 10px 0; }
         th, td { padding: 8px; text-align: left; border: 1px solid #ddd; }
@@ -18,23 +21,26 @@
         .fast-row:hover { background: #d4edda; }
         a { text-decoration: none; color: inherit; }
         .likely-up { font-weight: bold; color: #28a745; }
+        .empty-ip { border-color: #dc3545; background: #f8d7da; }
     </style>
 </head>
 <body>
     <h1>Fast CIDR HTTPS Multi-Port Timing Scanner</h1>
-    <p>Enter CIDR (e.g., 192.168.68.0/24) and ports. 3 tests only, hides IPs with no fast results.</p>
+    <p>Enter CIDR and ports. Toggle shows/hides IPs with no fast results for timing analysis.</p>
     
-    <input type="text" id="cidr" placeholder="192.168.68.0/24" value="192.168.68.0/24">
-    <input type="text" id="ports" placeholder="80,443,8006" value="80,443,8006">
+    <input type="text" id="cidr" placeholder="192.168.1.0/24" value="192.168.1.0/24">
+    <input type="text" id="ports" placeholder="80,443,8443,8080" value="80,443,8443,8080">
     <button onclick="runCidrScanner()">Scan CIDR</button>
+    <button id="toggleEmpty" class="toggle-btn" onclick="toggleEmptyIPs()">Show Empty IPs</button>
     
     <div id="results"></div>
 
     <script>
         const TIMEOUT = 500;
         const FAST_THRESHOLD = 200;
+        let allIpData = []; // Store all results for toggle
+        let showEmpty = false;
 
-        // Parse CIDR to IP array (synchronous)
         function parseCidr(cidr) {
             const [network, bits] = cidr.split('/');
             const [a, b, c, d] = network.split('.').map(Number);
@@ -54,7 +60,6 @@
             return ips;
         }
 
-        // FAST: Parallel ports (4 at a time) per IP - NO WEBSOCKET
         async function portScanner(ip, portsString) {
             const ports = portsString.split(',').map(p => p.trim()).filter(p => p);
             const allResults = [];
@@ -76,7 +81,6 @@
                 testFetch(target),
                 testTCP(target),
                 testXHR(target)
-                // WebSocket removed
             ]);
             return { port, host, tests };
         }
@@ -142,8 +146,9 @@
             return port === 80 ? `http://${host}:${port}/` : `https://${host}:${port}/`;
         }
 
-        function displayIpResults(ip, allResults) {
+        function displayIpResults(ip, allResults, showAll = false) {
             const fastTestsAll = [];
+            const allTests = []; // Store all tests for empty IPs
             
             allResults.forEach(portData => {
                 if (portData.status === 'fulfilled') {
@@ -151,6 +156,7 @@
                     data.tests.forEach(testResult => {
                         if (testResult.status === 'fulfilled') {
                             const t = testResult.value;
+                            allTests.push({...t, port: data.port, host: data.host});
                             if (t.time < FAST_THRESHOLD) {
                                 t.success = true;
                                 fastTestsAll.push({...t, port: data.port, host: data.host});
@@ -160,39 +166,71 @@
                 }
             });
 
-            // HIDE IPs with no fast tests
-            if (fastTestsAll.length === 0) {
-                return '';
+            // Always return HTML, but mark as empty for toggle
+            const isEmpty = fastTestsAll.length === 0;
+            if (!showAll && isEmpty) {
+                return { html: '', isEmpty: true, ipData: { ip, allTests } };
             }
 
-            let html = `<div class="ip-section">
-                <h3>${ip}</h3>`;
+            let html = `<div class="ip-section ${isEmpty ? 'empty-ip hidden' : ''}" data-ip="${ip}">
+                <h3>${ip} ${isEmpty ? '(No fast tests)' : ''}</h3>`;
             
-            fastTestsAll.forEach(t => {
-                html += `<div class="port-section">
-                    <table>
-                        <tr class="fast-row">
+            if (isEmpty && showAll) {
+                html += '<p>All test timings:</p>';
+                allTests.forEach(t => {
+                    html += `<div class="port-section">
+                        <table><tr>
+                            <td>${t.name} (Port ${t.port})</td>
+                            <td>${t.time.toFixed(0)}ms</td>
+                            <td>${t.success ? 'SUCCESS' : 'FAILED'}</td>
+                        </tr></table>
+                    </div>`;
+                });
+            } else if (fastTestsAll.length > 0) {
+                fastTestsAll.forEach(t => {
+                    html += `<div class="port-section">
+                        <table><tr class="fast-row">
                             <td><a href="${getLinkUrl(t.host || ip, t.port)}" target="_blank">${t.name} (Port ${t.port})</a></td>
                             <td>${t.time.toFixed(0)}ms</td>
                             <td class="success">SUCCESS</td>
-                        </tr>
-                    </table>
+                        </tr></table>
+                    </div>`;
+                });
+                html += `<div class="result success">
+                    <span class="likely-up">LIKELY UP</span> (${fastTestsAll.length} fast tests)
                 </div>`;
+            }
+            
+            html += '</div>';
+            return { html, isEmpty: false, ipData: null };
+        }
+
+        function toggleEmptyIPs() {
+            showEmpty = !showEmpty;
+            const btn = document.getElementById('toggleEmpty');
+            btn.textContent = showEmpty ? 'Hide Empty IPs' : 'Show Empty IPs';
+            btn.classList.toggle('active', showEmpty);
+            
+            allIpData.forEach(data => {
+                if (data.isEmpty) {
+                    const el = document.querySelector(`[data-ip="${data.ip}"]`);
+                    if (el) {
+                        el.classList.toggle('hidden', !showEmpty);
+                    }
+                }
             });
-            
-            html += `<div class="result success">
-                <span class="likely-up">LIKELY UP</span> 
-                (${fastTestsAll.length} fast tests)
-            </div></div>`;
-            
-            return html;
         }
 
         async function runCidrScanner() {
             const cidr = document.getElementById('cidr').value.trim();
             const ports = document.getElementById('ports').value.trim();
             const resultsDiv = document.getElementById('results');
-            resultsDiv.innerHTML = '<h3>Scanning CIDR (3 tests/IP, hides empty results)...</h3>';
+            resultsDiv.innerHTML = '<h3>Scanning CIDR (toggle empty IPs below)...</h3>';
+            
+            showEmpty = false;
+            document.getElementById('toggleEmpty').textContent = 'Show Empty IPs';
+            document.getElementById('toggleEmpty').classList.remove('active');
+            allIpData = [];
 
             const ips = parseCidr(cidr);
             let html = '';
@@ -200,16 +238,20 @@
             
             for (const ip of ips) {
                 const results = await portScanner(ip, ports);
-                const ipHtml = displayIpResults(ip, results);
-                if (ipHtml) {
+                const result = displayIpResults(ip, results, false);
+                allIpData.push(result);
+                
+                if (result.html) {
                     visibleIps++;
-                    html = ipHtml + html; // Prepend to show newest first
+                    html = result.html + html;
                 }
-                resultsDiv.innerHTML = `<h3>Scanning... ${visibleIps} IPs with results (${ips.indexOf(ip) + 1}/${ips.length})</h3>` + html;
+                
+                resultsDiv.innerHTML = `<h3>Scanning... ${visibleIps} fast IPs (${ips.indexOf(ip) + 1}/${ips.length})</h3>` + html;
                 await new Promise(resolve => setTimeout(resolve, 200));
             }
             
-            resultsDiv.innerHTML = `<h3>Complete: ${visibleIps} IPs with fast services found</h3>` + html;
+            resultsDiv.innerHTML = `<h3>Complete: ${visibleIps} fast IPs found 
+                <button class="toggle-btn ${showEmpty ? 'active' : ''}" onclick="toggleEmptyIPs()">${showEmpty ? 'Hide' : 'Show'} Empty IPs</button></h3>` + html;
         }
     </script>
 </body>
