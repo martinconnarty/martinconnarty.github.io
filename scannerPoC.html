@@ -28,15 +28,15 @@
     <h1>Fast CIDR HTTPS Multi-Port Timing Scanner</h1>
     <p>Enter CIDR and ports. Toggle "Show All Results" to see IPs with no fast services.</p>
     
-    <input type="text" id="cidr" placeholder="192.168.1.0/24" value="192.168.1.0/24">
-    <input type="text" id="ports" placeholder="80,443,8443,8080" value="80,443,8443,8080">
+    <input type="text" id="cidr" placeholder="192.168.68.0/24" value="192.168.1.0/24">
+    <input type="text" id="ports" placeholder="80,443,8006" value="80,443,8443,8080">
     <button onclick="runCidrScanner()">Scan CIDR</button>
     <button id="toggleAll" class="toggle-btn" onclick="toggleAllResults()">Show All Results</button>
     
     <div id="results"></div>
 
     <script>
-        const TIMEOUT = 500;
+        const TIMEOUT = 1000;
         const FAST_THRESHOLD = 200;
         let allScanData = [];  // Store ALL scan results
         let showAll = false;
@@ -89,7 +89,7 @@
             const start = performance.now();
             try {
                 const response = await fetch(target, {
-                    method: 'HEAD',
+                    method: 'GET',
                     signal: AbortSignal.timeout(TIMEOUT),
                     cache: 'no-cache'
                 });
@@ -118,7 +118,7 @@
                 const start = performance.now();
                 const xhr = new XMLHttpRequest();
                 xhr.timeout = TIMEOUT;
-                xhr.open('HEAD', target, true);
+                xhr.open('GET', target, true);
                 xhr.onreadystatechange = () => {
                     if (xhr.readyState === 4) {
                         const end = performance.now();
