@@ -83,22 +83,25 @@
         let maxTimeout = 3000;
         let isScanning = false;
 
-        // BEST METHOD: Image loading timing (most reliable cross-browser)
+               // FIXED: Pure connection timing - catches fast ERROR vs slow TIMEOUT
         async function testPort(ip, port, timeoutMs) {
             const url = `https://${ip}:${port}/favicon.ico?t=${Date.now()}`;
             const start = performance.now();
-
+        
             return new Promise((resolve) => {
                 const img = new Image();
+                let aborted = false;
+                
                 const timeoutId = setTimeout(() => {
+                    aborted = true;
                     resolve({ 
-                        time: Math.round(timeoutMs), 
+                        time: Math.round(performance.now() - start), 
                         status: 'timeout', 
                         success: false 
                     });
                 }, timeoutMs);
-
-                img.onload = img.onerror = () => {
+        
+                img.onload = () => {
                     clearTimeout(timeoutId);
                     const elapsed = Math.round(performance.now() - start);
                     resolve({
@@ -107,7 +110,19 @@
                         success: true
                     });
                 };
-
+        
+                img.onerror = () => {
+                    if (!aborted) {
+                        clearTimeout(timeoutId);
+                        const elapsed = Math.round(performance.now() - start);
+                        resolve({
+                            time: elapsed,
+                            status: 'error',  // FAST ERROR = port filtered/open differently
+                            success: true     // Treat fast error as "success" for timing
+                        });
+                    }
+                };
+        
                 img.src = url;
             });
         }
