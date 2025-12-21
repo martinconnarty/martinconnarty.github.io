@@ -27,7 +27,7 @@
 </head>
 <body>
     <h1>CIDR HTTPS Port Scanner</h1>
-    <p>Enter CIDR (e.g., 192.168.1.0/24) and ports. Scans 16 IPs concurrently, shows <500ms tests as clickable links.</p>
+    <p>Enter CIDR (e.g., 192.168.1.0/24) and ports. Scans 6 IPs concurrently, shows <500ms tests as clickable links.</p>
     
     <input type="text" id="cidr" placeholder="192.168.1.0/24" value="192.168.1.0/24">
     <input type="text" id="ports" placeholder="80,443,8443,8080" value="80,443,8443,8080">
@@ -43,7 +43,7 @@
     <script>
         const TIMEOUT = 2000;
         const FAST_THRESHOLD = 500;
-        const CONCURRENT_BATCH = 16;
+        const CONCURRENT_BATCH = 6;
 
         async function runScan() {
             const cidr = document.getElementById('cidr').value.trim();
