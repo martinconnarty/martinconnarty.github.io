@@ -22,11 +22,11 @@
         .host-box.deep-scanned { border-left-color: #17a2b8 !important; }
         .host-ip { font-size: 24px; font-weight: 600; margin-bottom: 15px; color: #1a1a1a; }
         .initial-timing { font-size: 18px; font-weight: 500; color: #dc3545; font-family: monospace; margin-bottom: 10px; text-decoration: none; display: block; }
-        .initial-timing.fast { color: #28a745; }
+        .initial-timing.live { color: #28a745; background: rgba(40,167,69,0.1); padding: 4px 8px; border-radius: 4px; }
         .port-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 15px; }
         .port-pill { padding: 8px 12px; border-radius: 20px; font-weight: 500; font-size: 14px; text-align: center; font-family: monospace; }
-        .port-pill.fast { background: linear-gradient(135deg, #28a745, #20c997); color: white; }
-        .port-pill.slow { background: #6c757d; color: white; opacity: 0.7; }
+        .port-pill.live { background: linear-gradient(135deg, #28a745, #20c997); color: white; }
+        .port-pill.dead { background: #6c757d; color: white; opacity: 0.7; }
         .legend { display: flex; flex-wrap: wrap; gap: 20px; font-size: 14px; margin-top: 20px; }
         .legend-color { width: 20px; height: 20px; border-radius: 50%; }
         .concurrency-display { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
@@ -47,7 +47,7 @@
             </div>
             <div class="input-col">
                 <label for="initialTimeout">Timeout (ms):</label>
-                <input type="number" id="initialTimeout" value="3000" min="1000" max="10000">
+                <input type="number" id="initialTimeout" value="2000" min="500" max="5000">
             </div>
         </div>
         <div class="concurrency-display">
@@ -64,65 +64,66 @@
     <div class="slider-container">
         <label>Threshold: </label>
         <input type="range" id="thresholdSlider" min="0" max="100" value="100">
-        <span class="slider-value" id="thresholdValue">3000ms</span>
-        <span>Max: <span id="maxThreshold">3000</span>ms</span>
+        <span class="slider-value" id="thresholdValue">2000ms</span>
+        <span>Max: <span id="maxThreshold">2000</span>ms</span>
     </div>
 
     <div id="phase1Results" class="results"></div>
     
     <div class="legend">
-        <div class="legend-item"><span class="legend-color" style="background: #28a745;"></span>Fast connect</div>
+        <div class="legend-item"><span class="legend-color" style="background: #28a745;"></span>Live (<500ms error)</div>
         <div class="legend-item"><span class="legend-color" style="background: #17a2b8;"></span>Deep scanned</div>
-        <div class="legend-item"><span class="legend-color" style="background: linear-gradient(135deg, #28a745, #20c997);"></span>Fast port</div>
+        <div class="legend-item"><span class="legend-color" style="background: linear-gradient(135deg, #28a745, #20c997);"></span>Live port</div>
     </div>
 
     <script>
         const PORT_80 = 80;
         const WEB_PORTS = [443, 8443, 8000, 8006, 8080, 8008];
         let phase1Results = [];
-        let maxTimeout = 3000;
+        let maxTimeout = 2000;
         let isScanning = false;
 
-               // FIXED: Pure connection timing - catches fast ERROR vs slow TIMEOUT
+        // PERFECT TIMING: Catch FAST ERROR (live) vs SLOW TIMEOUT (dead)
         async function testPort(ip, port, timeoutMs) {
             const url = `https://${ip}:${port}/favicon.ico?t=${Date.now()}`;
             const start = performance.now();
-        
+
             return new Promise((resolve) => {
                 const img = new Image();
                 let aborted = false;
                 
                 const timeoutId = setTimeout(() => {
                     aborted = true;
-                    resolve({ 
-                        time: Math.round(performance.now() - start), 
-                        status: 'timeout', 
-                        success: false 
+                    const elapsed = Math.round(performance.now() - start);
+                    resolve({
+                        time: elapsed,
+                        status: 'timeout',  // SLOW = dead
+                        live: false
                     });
                 }, timeoutMs);
-        
+
                 img.onload = () => {
                     clearTimeout(timeoutId);
                     const elapsed = Math.round(performance.now() - start);
                     resolve({
                         time: elapsed,
-                        status: 'fast',
-                        success: true
+                        status: 'load',     // Rare success
+                        live: true
                     });
                 };
-        
+
                 img.onerror = () => {
                     if (!aborted) {
-                        clearTimeout(timeoutId);
                         const elapsed = Math.round(performance.now() - start);
+                        // FAST ERROR = LIVE host/port (connection made, rejected favicon)
                         resolve({
                             time: elapsed,
-                            status: 'error',  // FAST ERROR = port filtered/open differently
-                            success: true     // Treat fast error as "success" for timing
+                            status: 'error',
+                            live: elapsed < 500  // <500ms = definitely live
                         });
                     }
                 };
-        
+
                 img.src = url;
             });
         }
@@ -196,13 +197,14 @@
                     renderPhase1Results();
                     
                     progressEl.value = ((index + 1) / ips.length) * 100;
-                    statusEl.textContent = `${index + 1}/${ips.length} (${result.time}ms)`;
+                    const label = result.live ? 'LIVE' : result.time < 1000 ? 'FAST' : 'DEAD';
+                    statusEl.textContent = `${index + 1}/${ips.length} (${result.time}ms ${label})`;
                 });
 
                 await Promise.all(promises);
                 
-                const fasts = phase1Results.filter(r => r.time < maxTimeout * 0.5).length;
-                statusEl.innerHTML = `✓ Phase 1 complete! ${fasts} fast hosts. <strong>Drag threshold</strong>`;
+                const lives = phase1Results.filter(r => r.live).length;
+                statusEl.innerHTML = `✓ Phase 1 complete! ${lives} LIVE hosts. <strong>Drag threshold</strong>`;
                 document.getElementById('phase2Btn').disabled = false;
                 document.getElementById('thresholdSlider').max = 100;
                 document.getElementById('maxThreshold').textContent = maxTimeout;
@@ -221,8 +223,8 @@
             resultsEl.innerHTML = phase1Results.map(host => `
                 <div class="host-box hidden" data-time="${host.time}" data-ip="${host.ip}">
                     <div class="host-ip">${host.ip}</div>
-                    <a href="http://${host.ip}:80/" target="_blank" class="initial-timing ${host.time < 1500 ? 'fast' : ''}">
-                        Port 80: <strong>${host.time}ms</strong> ${host.success ? '⚡' : '⏰'}
+                    <a href="http://${host.ip}:80/" target="_blank" class="initial-timing ${host.live ? 'live' : ''}">
+                        Port 80: <strong>${host.time}ms</strong> ${host.live ? '🟢 LIVE' : host.status}
                     </a>
                 </div>
             `).join('');
@@ -251,13 +253,13 @@
                 const promises = candidates.map(async (cand) => {
                     await semaphore.acquire();
                     try {
-                        const portTimes = { 80: { time: cand.time, success: cand.success } };
+                        const portTimes = { 80: { time: cand.time, live: cand.live } };
                         
                         for (const port of WEB_PORTS) {
                             const result = await testPort(cand.ip, port, maxTimeout);
                             portTimes[port] = result;
                             updateHostBox(cand.ip, portTimes);
-                            statusEl.textContent = `Phase 2: ${cand.ip}:${port} ${result.time}ms`;
+                            statusEl.textContent = `Phase 2: ${cand.ip}:${port} ${result.time}ms ${result.live ? 'LIVE' : 'dead'}`;
                             await new Promise(r => setTimeout(r, 50));
                         }
                         
@@ -285,8 +287,8 @@
             
             WEB_PORTS.forEach(port => {
                 const result = portTimes[port];
-                const statusClass = result.time < 2000 ? 'fast' : 'slow';
-                const icon = result.time < 2000 ? '⚡' : '⏰';
+                const statusClass = result.live ? 'live' : 'dead';
+                const icon = result.live ? '🟢' : '⚫';
                 
                 const pill = document.createElement('div');
                 pill.className = `port-pill ${statusClass}`;
