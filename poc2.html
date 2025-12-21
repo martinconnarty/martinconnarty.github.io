@@ -27,7 +27,7 @@
 </head>
 <body>
     <h1>CIDR HTTPS Port Scanner</h1>
-    <p>Enter CIDR (e.g., 192.168.1.0/24) and ports. Scans 6 IPs concurrently, shows <500ms tests as clickable links.</p>
+    <p>Enter CIDR (e.g., 192.168.1.0/24) and ports. Scans 16 IPs concurrently, shows only <500ms tests.</p>
     
     <input type="text" id="cidr" placeholder="192.168.1.0/24" value="192.168.1.0/24">
     <input type="text" id="ports" placeholder="80,443,8443,8080" value="80,443,8443,8080">
@@ -43,9 +43,16 @@
     <script>
         const TIMEOUT = 2000;
         const FAST_THRESHOLD = 500;
-        const CONCURRENT_BATCH = 6;
+        const CONCURRENT_BATCH = 16;
+        
+        // Fresh AbortController per test to prevent leakage
+        let abortControllers = [];
 
         async function runScan() {
+            // Cleanup previous controllers
+            abortControllers.forEach(ctrl => ctrl.abort());
+            abortControllers = [];
+            
             const cidr = document.getElementById('cidr').value.trim();
             const portsInput = document.getElementById('ports').value.trim();
             const ports = portsInput.split(',').map(p => p.trim()).filter(p => p);
@@ -74,8 +81,7 @@
                 document.getElementById('scanned-count').textContent = scannedCount;
                 document.getElementById('total-count').textContent = ips.length;
                 
-                // Brief yield to prevent blocking
-                await new Promise(resolve => setTimeout(resolve, 10));
+                await new Promise(resolve => setTimeout(resolve, 50)); // Longer yield
             }
             
             progressDiv.style.display = 'none';
@@ -121,14 +127,17 @@
         }
 
         async function testFetch(target) {
+            const controller = new AbortController();
+            abortControllers.push(controller); // Track for cleanup
+            
             const start = performance.now();
             try {
-                const controller = new AbortController();
                 setTimeout(() => controller.abort(), TIMEOUT);
                 const response = await fetch(target, {
                     method: 'HEAD',
                     signal: controller.signal,
-                    cache: 'no-cache'
+                    cache: 'no-cache',
+                    mode: 'no-cors' // Add isolation
                 });
                 const end = performance.now();
                 return { name: 'Fetch HEAD', time: end - start, status: response.status, success: true };
@@ -140,6 +149,9 @@
 
         async function testImage(target) {
             return new Promise((resolve) => {
+                const controller = new AbortController();
+                abortControllers.push(controller);
+                
                 const start = performance.now();
                 const img = new Image();
                 img.onload = () => {
@@ -150,7 +162,7 @@
                     const end = performance.now();
                     resolve({ name: 'Image Load', time: end - start, error: 'Failed', success: false });
                 };
-                img.src = target + '/favicon.ico?' + Date.now();
+                img.src = target + '/favicon.ico?' + Date.now() + Math.random();
                 setTimeout(() => {
                     if (!img.complete) {
                         const end = performance.now();
@@ -244,7 +256,7 @@
                 }
             });
             
-            html += `<strong>Scan Complete:</strong> ${totalFastTests} fast tests (<500ms) found across all IPs/ports</div>`;
+            html += `<strong>Scan Complete:</strong> ${totalFastTests} fast tests (<500ms) found</div>`;
             
             allResults.forEach(result => {
                 if (result.status === 'fulfilled') {
@@ -253,7 +265,7 @@
                     
                     html += `<div class="ip-section">
                         <h4>${ipData.host} 
-                            <span style="font-size:0.9em; color:#666;">(${ipData.ports.length} ports tested)</span>
+                            <span style="font-size:0.9em; color:#666;">(${ipData.ports.length} ports)</span>
                         </h4>`;
                     
                     ipData.ipResults.forEach(portResult => {
@@ -265,7 +277,6 @@
                                 if (testResult.status === 'fulfilled') {
                                     const t = testResult.value;
                                     if (t.time < FAST_THRESHOLD) {
-                                        t.success = true;
                                         fastTests.push(t);
                                     }
                                 }
@@ -295,13 +306,12 @@
                         }
                     });
                     
+                    if (!ipHasFastTests) {
+                        html += '<p style="color:#999; font-style:italic;">No fast tests (&lt;500ms)</p>';
+                    }
                     html += '</div>';
                 }
             });
-            
-            if (!html.includes('ip-section')) {
-                html += '<p>No IPs had <500ms responses (all FILTERED).</p>';
-            }
             
             resultsDiv.innerHTML = html;
         }
