@@ -85,37 +85,28 @@
         let isScanning = false;
 
         async function testPort(ip, port, timeoutMs) {
-            const start = performance.now();
-            const url = `https://${ip}:${port}/favicon.ico`;
+                const url = `https://${ip}:${port}/favicon.ico`;
+                const start = performance.now();
             
-            // Preconnect hint + timing
-            const link = document.createElement('link');
-            link.rel = 'preconnect';
-            link.href = `https://${ip}:${port}`;
-            document.head.appendChild(link);
-        
-            // Measure navigation timing
-            const navTiming = performance.getEntriesByType('navigation')[0];
-            const navStart = navTiming?.fetchStart || start;
-        
-            // Fake navigation timing via small iframe
-            const iframe = document.createElement('iframe');
-            iframe.style.display = 'none';
-            iframe.src = url;
-            document.body.appendChild(iframe);
-        
-            return new Promise((resolve) => {
-                setTimeout(() => {
-                    document.body.removeChild(iframe);
-                    document.head.removeChild(link);
-                    resolve({
-                        time: Math.round(performance.now() - navStart),
-                        status: 'connect',
-                        success: true
-                    });
-                }, timeoutMs);
-            });
-        }
+                return new Promise((resolve) => {
+                    const img = new Image();
+                    const timeoutId = setTimeout(() => {
+                        resolve({ time: timeoutMs, status: 'timeout', success: false });
+                    }, timeoutMs);
+            
+                    img.onload = img.onerror = () => {
+                        clearTimeout(timeoutId);
+                        resolve({
+                            time: Math.round(performance.now() - start),
+                            status: img.complete ? 'fast' : 'error',
+                            success: true
+                        });
+                    };
+            
+                    img.src = url + '?t=' + Date.now();
+                });
+            }
+
 
         // Phase 1: Stream results live
         async function phase1Sweep() {
