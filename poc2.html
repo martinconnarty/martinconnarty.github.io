@@ -124,7 +124,7 @@
             return { ip, ports, ipResults };
         }
 
-        async function testIPPort(ip, port) {
+        function testIPPort(ip, port) {
             const target = `https://${ip}:${port}`;
             const tests = await Promise.allSettled([
                 testFetch(target),
