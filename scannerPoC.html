@@ -84,92 +84,58 @@
         let maxTimeout = 3000;
         let isScanning = false;
 
-       // Simple HTTPS favicon timing using XHR
-// HTTPS favicon timing using XHR, treating non‑2xx/3xx as error
+// Register once in main script, then use:
+// navigator.serviceWorker.controller.postMessage({type: 'testPort', ip, port, timeoutMs})
 async function testPort(ip, port, timeoutMs) {
-    const url = `https://${ip}:${port}/a.jpg`;
-    const start = performance.now();
-
-    return new Promise((resolve) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('GET', url, true);
-        xhr.timeout = timeoutMs;
-
-        function finish(statusLabel, successFlag) {
-            const elapsed = Math.round(performance.now() - start);
-            resolve({
-                time: Math.min(elapsed, timeoutMs),
-                status: statusLabel,
-                success: !!successFlag
+            if (!navigator.serviceWorker.controller) throw new Error('SW not ready');
+            
+            return new Promise((resolve) => {
+                const channel = new MessageChannel();
+                channel.port1.onmessage = (e) => resolve(e.data);
+                navigator.serviceWorker.controller.postMessage(
+                    { type: 'testPort', ip, port, timeoutMs },
+                    [channel.port2]
+                );
             });
         }
-
-        xhr.onreadystatechange = function () {
-            if (xhr.readyState === 4) {
-                // Treat any non‑2xx/3xx as error
-                if (xhr.status >= 200 && xhr.status < 400) {
-                    finish('ok', true);
-                } else {
-                    finish('error', false);
+        
+                function parseSubnet(cidr) {
+                    const [net, bits] = cidr.split('/');
+                    const [a, b, c, d] = net.match(/\d+/g).map(Number);
+                    const mask = ~((1 << (32 - bits)) - 1);
+                    const start = (a << 24 | b << 16 | c << 8 | d) & mask;
+                    const end = start | (~mask >>> 0);
+                    const ips = [];
+                    for (let i = start; i <= end; i++) {
+                        const ip = [(i>>>24)&255, (i>>>16)&255, (i>>>8)&255, i&255].join('.');
+                        ips.push(ip);
+                    }
+                    return ips;
                 }
-            }
-        };
-
-        xhr.ontimeout = function () {
-            finish('timeout', false);
-        };
-
-        xhr.onerror = function () {
-            // Network‑level failure (DNS, TLS, etc.)
-            finish('error', false);
-        };
-
-        try {
-            xhr.send(null);
-        } catch (e) {
-            finish('error', false);
-        }
-    });
-}
-
-
-        function parseSubnet(cidr) {
-            const [net, bits] = cidr.split('/');
-            const [a, b, c, d] = net.match(/\d+/g).map(Number);
-            const mask = ~((1 << (32 - bits)) - 1);
-            const start = (a << 24 | b << 16 | c << 8 | d) & mask;
-            const end = start | (~mask >>> 0);
-            const ips = [];
-            for (let i = start; i <= end; i++) {
-                const ip = [(i>>>24)&255, (i>>>16)&255, (i>>>8)&255, i&255].join('.');
-                ips.push(ip);
-            }
-            return ips;
-        }
-
-        class Semaphore {
-            constructor(concurrency) {
-                this.concurrency = concurrency;
-                this.queue = [];
-                this.active = 0;
-            }
-            async acquire() {
-                return new Promise(resolve => {
-                    this.queue.push(resolve);
-                    this._processQueue();
-                });
-            }
-            release() {
-                this.active--;
-                this._processQueue();
-            }
-            _processQueue() {
-                while (this.active < this.concurrency && this.queue.length > 0) {
-                    this.active++;
-                    this.queue.shift()();
+        
+                class Semaphore {
+                    constructor(concurrency) {
+                        this.concurrency = concurrency;
+                        this.queue = [];
+                        this.active = 0;
+                    }
+                    async acquire() {
+                        return new Promise(resolve => {
+                            this.queue.push(resolve);
+                            this._processQueue();
+                        });
+                    }
+                    release() {
+                        this.active--;
+                        this._processQueue();
+                    }
+                    _processQueue() {
+                        while (this.active < this.concurrency && this.queue.length > 0) {
+                            this.active++;
+                            this.queue.shift()();
+                        }
+                    }
                 }
-            }
-        }
 
         // Phase 1: Stream results live
         async function phase1Sweep() {
