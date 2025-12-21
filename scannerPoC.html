@@ -85,59 +85,53 @@
         let isScanning = false;
 
        // Simple HTTPS favicon timing using XHR
+// HTTPS favicon timing using XHR, treating non‑2xx/3xx as error
 async function testPort(ip, port, timeoutMs) {
-    const url = `https://${ip}:${port}/favicon.ico`;
+    const url = `https://${ip}:${port}/a.jpg`;
     const start = performance.now();
 
     return new Promise((resolve) => {
         const xhr = new XMLHttpRequest();
-        xhr.open('GET', url, true); // async
+        xhr.open('GET', url, true);
+        xhr.timeout = timeoutMs;
 
-        // Set timeout in ms
-        xhr.timeout = timeoutMs; // [web:14]
+        function finish(statusLabel, successFlag) {
+            const elapsed = Math.round(performance.now() - start);
+            resolve({
+                time: Math.min(elapsed, timeoutMs),
+                status: statusLabel,
+                success: !!successFlag
+            });
+        }
 
         xhr.onreadystatechange = function () {
-            // readyState 4 = done (we get timing even if CORS blocks response body) [web:12]
             if (xhr.readyState === 4) {
-                const elapsed = Math.round(performance.now() - start);
-                resolve({
-                    time: Math.min(elapsed, timeoutMs),
-                    status: (xhr.status >= 200 && xhr.status < 400) ? 'ok' : 'error',
-                    success: (xhr.status >= 200 && xhr.status < 400)
-                });
+                // Treat any non‑2xx/3xx as error
+                if (xhr.status >= 200 && xhr.status < 400) {
+                    finish('ok', true);
+                } else {
+                    finish('error', false);
+                }
             }
         };
 
         xhr.ontimeout = function () {
-            const elapsed = Math.round(performance.now() - start);
-            resolve({
-                time: Math.min(elapsed, timeoutMs),
-                status: 'timeout',
-                success: false
-            });
+            finish('timeout', false);
         };
 
         xhr.onerror = function () {
-            const elapsed = Math.round(performance.now() - start);
-            resolve({
-                time: Math.min(elapsed, timeoutMs),
-                status: 'error',
-                success: false
-            });
+            // Network‑level failure (DNS, TLS, etc.)
+            finish('error', false);
         };
 
         try {
             xhr.send(null);
         } catch (e) {
-            const elapsed = Math.round(performance.now() - start);
-            resolve({
-                time: Math.min(elapsed, timeoutMs),
-                status: 'error',
-                success: false
-            });
+            finish('error', false);
         }
     });
 }
+
 
         function parseSubnet(cidr) {
             const [net, bits] = cidr.split('/');
