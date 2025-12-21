@@ -84,6 +84,30 @@
         let maxTimeout = 3000;
         let isScanning = false;
 
+
+         function parseSubnet(cidr) {
+            const [net, bits] = cidr.split('/');
+            const [a, b, c, d] = net.match(/\d+/g).map(Number);
+            const mask = ~((1 << (32 - bits)) - 1);
+            const start = (a << 24 | b << 16 | c << 8 | d) & mask;
+            const end = start | (~mask >>> 0);
+            const ips = [];
+            for (let i = start; i <= end; i++) {
+                const ip = [
+                    (i >>> 24) & 255,
+                    (i >>> 16) & 255,
+                    (i >>> 8) & 255,
+                    i & 255
+                ].join('.');
+                ips.push(ip);
+            }
+            return ips;
+        }
+
+
+
+        
+
         async function testPort(ip, port, timeoutMs) {
                 const url = `https://${ip}:${port}/favicon.ico`;
                 const start = performance.now();
