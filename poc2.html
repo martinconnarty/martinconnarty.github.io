@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTTPS Host Timing Checker</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        input { width: 200px; padding: 8px; margin: 10px 0; }
+        button { padding: 10px 20px; background: #007bff; color: white; border: none; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .result { margin: 15px 0; padding: 10px; border-left: 4px solid #007bff; background: #f8f9fa; }
+        .error { border-left-color: #dc3545; background: #f8d7da; }
+        .success { border-left-color: #28a745; background: #d4edda; }
+    </style>
+</head>
+<body>
+    <h1>HTTPS Host Timing Checker</h1>
+    <p>Enter a local IP (e.g., 192.168.1.100) and port (e.g., 443). Tests connection with 2s timeout using multiple methods.</p>
+    
+    <input type="text" id="host" placeholder="192.168.1.100" value="192.168.1.100">
+    <input type="number" id="port" placeholder="443" value="443">
+    <button onclick="runTests()">Run Tests</button>
+    
+    <div id="results"></div>
+
+    <script>
+        const TIMEOUT = 2000; // 2 seconds
+
+        async function runTests() {
+            const host = document.getElementById('host').value;
+            const port = document.getElementById('port').value;
+            const target = `https://${host}:${port}`;
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<h3>Running tests...</h3>';
+
+            const tests = await Promise.allSettled([
+                testFetch(target),
+                testImage(target),
+                testXHR(target),
+                testWebSocket(host, port)
+            ]);
+
+            displayResults(target, tests);
+        }
+
+        async function testFetch(target) {
+            const start = performance.now();
+            try {
+                const controller = new AbortController();
+                setTimeout(() => controller.abort(), TIMEOUT);
+                
+                const response = await fetch(target, {
+                    method: 'HEAD',
+                    signal: controller.signal,
+                    cache: 'no-cache'
+                });
+                const end = performance.now();
+                return { name: 'Fetch HEAD', time: end - start, status: response.status, success: true };
+            } catch (e) {
+                const end = performance.now();
+                return { name: 'Fetch HEAD', time: end - start, error: e.name, success: false };
+            }
+        }
+
+        async function testImage(target) {
+            return new Promise((resolve) => {
+                const start = performance.now();
+                const img = new Image();
+                img.onload = () => {
+                    const end = performance.now();
+                    resolve({ name: 'Image Load', time: end - start, success: true });
+                };
+                img.onerror = (e) => {
+                    const end = performance.now();
+                    resolve({ name: 'Image Load', time: end - start, error: 'Failed', success: false });
+                };
+                img.src = target + '/favicon.ico?' + Date.now();
+                setTimeout(() => {
+                    if (!img.complete) {
+                        const end = performance.now();
+                        resolve({ name: 'Image Load', time: end - start, error: 'Timeout', success: false });
+                    }
+                }, TIMEOUT);
+            });
+        }
+
+        async function testXHR(target) {
+            return new Promise((resolve) => {
+                const start = performance.now();
+                const xhr = new XMLHttpRequest();
+                xhr.timeout = TIMEOUT;
+                xhr.open('HEAD', target, true);
+                xhr.onreadystatechange = () => {
+                    if (xhr.readyState === 4) {
+                        const end = performance.now();
+                        resolve({ 
+                            name: 'XHR HEAD', 
+                            time: end - start, 
+                            status: xhr.status, 
+                            success: xhr.status >= 200 && xhr.status < 400 
+                        });
+                    }
+                };
+                xhr.ontimeout = () => {
+                    const end = performance.now();
+                    resolve({ name: 'XHR HEAD', time: end - start, error: 'Timeout', success: false });
+                };
+                xhr.onerror = () => {
+                    const end = performance.now();
+                    resolve({ name: 'XHR HEAD', time: end - start, error: 'Network Error', success: false });
+                };
+                xhr.send();
+            });
+        }
+
+        async function testWebSocket(host, port) {
+            return new Promise((resolve) => {
+                const start = performance.now();
+                try {
+                    const ws = new WebSocket(`wss://${host}:${port}`);
+                    ws.onopen = () => {
+                        const end = performance.now();
+                        ws.close();
+                        resolve({ name: 'WebSocket', time: end - start, success: true });
+                    };
+                    ws.onerror = (e) => {
+                        const end = performance.now();
+                        resolve({ name: 'WebSocket', time: end - start, error: 'Connection failed', success: false });
+                    };
+                    setTimeout(() => {
+                        const end = performance.now();
+                        resolve({ name: 'WebSocket', time: end - start, error: 'Timeout', success: false });
+                    }, TIMEOUT);
+                } catch (e) {
+                    const end = performance.now();
+                    resolve({ name: 'WebSocket', time: end - start, error: e.message, success: false });
+                }
+            });
+        }
+
+        function displayResults(target, tests) {
+            const resultsDiv = document.getElementById('results');
+            let html = `<h3>Results for ${target}</h3><table border="1" style="width:100%; border-collapse: collapse;">
+                <tr><th>Test</th><th>Time (ms)</th><th>Status</th></tr>`;
+            
+            let upCount = 0;
+            tests.forEach((result, i) => {
+                if (result.status === 'fulfilled') {
+                    const t = result.value;
+                    const statusClass = t.success ? 'success' : 'error';
+                    const statusText = t.success ? `OK (${t.status || 'connected'})` : (t.error || 'Failed');
+                    html += `<tr><td>${t.name}</td><td>${t.time.toFixed(0)}</td><td class="${statusClass}">${statusText}</td></tr>`;
+                    if (t.success) upCount++;
+                }
+            });
+            html += '</table>';
+            
+            const likelyUp = upCount >= 2;
+            html += `<div class="result ${likelyUp ? 'success' : 'error'}">
+                <strong>${likelyUp ? 'LIKELY UP' : 'LIKELY DOWN'}</strong> (${upCount}/4 tests passed)
+            </div>`;
+            
+            resultsDiv.innerHTML = html;
+        }
+    </script>
+</body>
+</html>
