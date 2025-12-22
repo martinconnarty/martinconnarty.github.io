@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fast CIDR HTTPS Port Scanner (GET only)</title>
+    <title>Fast CIDR HTTPS Port Scanner (GET + Fast Failures)</title>
     <style>
         body { font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
         input { width: 250px; padding: 8px; margin: 10px 5px; }
@@ -24,8 +24,8 @@
     </style>
 </head>
 <body>
-    <h1>Fast CIDR HTTPS Multi-Port Timing Scanner (GET only)</h1>
-    <p>Enter CIDR and ports. Uses GET for all probes. Toggle "Show All Results" to see IPs with no fast services.</p>
+    <h1>Fast CIDR HTTPS Multi-Port Timing Scanner (GET + Fast Failures)</h1>
+    <p>Enter CIDR and ports. Uses GET with keepalive:false for HEAD-like fast failures.</p>
     
     <input type="text" id="cidr" placeholder="192.168.1.0/24" value="192.168.1.0/24">
     <input type="text" id="ports" placeholder="80,443,8443,8080" value="80,443,8443,8080">
@@ -35,7 +35,7 @@
     <div id="results"></div>
 
     <script>
-        const TIMEOUT = 1000;
+        const TIMEOUT = 500;
         const FAST_THRESHOLD = 200;
         let allScanData = [];
         let showAll = false;
@@ -84,14 +84,16 @@
             return { port, host, tests };
         }
 
-        // GET instead of HEAD
+        // FAST GET with keepalive:false (HEAD-like failure speed)
         async function testFetch(target) {
             const start = performance.now();
             try {
                 const response = await fetch(target, {
                     method: 'GET',
                     signal: AbortSignal.timeout(TIMEOUT),
-                    cache: 'no-cache'
+                    cache: 'no-cache',
+                    keepalive: false,      // ✅ Prevents connection reuse delays
+                    headers: { 'Accept': '*/*' }  // Minimal response
                 });
                 return { name: 'Fetch GET', time: performance.now() - start, status: response.status, success: true };
             } catch (e) {
@@ -99,28 +101,31 @@
             }
         }
 
-        // Also GET here (TCP-style timing)
+        // FAST TCP-style GET (no-cors + keepalive:false)
         async function testTCP(target) {
             const start = performance.now();
             try {
                 await fetch(target, {
                     method: 'GET',
                     signal: AbortSignal.timeout(TIMEOUT),
-                    mode: 'no-cors'
+                    mode: 'no-cors',
+                    keepalive: false,      // ✅ Key for fast failures
+                    redirect: 'manual'     // Skip redirect delays
                 });
-                return { name: 'TCP Connect (GET)', time: performance.now() - start, success: true };
+                return { name: 'TCP GET', time: performance.now() - start, success: true };
             } catch {
-                return { name: 'TCP Connect (GET)', time: performance.now() - start, success: false };
+                return { name: 'TCP GET', time: performance.now() - start, success: false };
             }
         }
 
-        // XHR using GET too
+        // XHR GET with shorter timeout
         async function testXHR(target) {
             return new Promise((resolve) => {
                 const start = performance.now();
                 const xhr = new XMLHttpRequest();
-                xhr.timeout = TIMEOUT;
+                xhr.timeout = 300;  // Shorter for XHR
                 xhr.open('GET', target, true);
+                xhr.setRequestHeader('Cache-Control', 'no-cache');
                 xhr.onreadystatechange = () => {
                     if (xhr.readyState === 4) {
                         const end = performance.now();
