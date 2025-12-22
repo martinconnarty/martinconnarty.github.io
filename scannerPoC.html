@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fast CIDR HTTPS Port Scanner (GET + Fast Failures)</title>
+    <title>Fast CIDR XHR GET Scanner</title>
     <style>
         body { font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
         input { width: 250px; padding: 8px; margin: 10px 5px; }
@@ -24,8 +24,8 @@
     </style>
 </head>
 <body>
-    <h1>Fast CIDR HTTPS Multi-Port Timing Scanner (GET + Fast Failures)</h1>
-    <p>Enter CIDR and ports. Uses GET with keepalive:false for HEAD-like fast failures.</p>
+    <h1>Fast CIDR XHR GET Scanner (<10ms=DOWN)</h1>
+    <p>Enter CIDR and ports. XHR GET only. <10ms filtered as DOWN.</p>
     
     <input type="text" id="cidr" placeholder="192.168.1.0/24" value="192.168.1.0/24">
     <input type="text" id="ports" placeholder="80,443,8443,8080" value="80,443,8443,8080">
@@ -37,6 +37,7 @@
     <script>
         const TIMEOUT = 500;
         const FAST_THRESHOLD = 200;
+        const DOWN_THRESHOLD = 10;  // <10ms = DOWN (filtered)
         let allScanData = [];
         let showAll = false;
 
@@ -76,54 +77,16 @@
 
         async function testPort(host, port) {
             const target = `https://${host}:${port}/`;
-            const tests = await Promise.allSettled([
-                testFetch(target),
-                testTCP(target),
-                testXHR(target)
-            ]);
-            return { port, host, tests };
+            const testResult = await testXHR(target);
+            return { port, host, tests: [testResult] };
         }
 
-        // FAST GET with keepalive:false (HEAD-like failure speed)
-        async function testFetch(target) {
-            const start = performance.now();
-            try {
-                const response = await fetch(target, {
-                    method: 'GET',
-                    signal: AbortSignal.timeout(TIMEOUT),
-                    cache: 'no-cache',
-                    keepalive: false,      // ✅ Prevents connection reuse delays
-                    headers: { 'Accept': '*/*' }  // Minimal response
-                });
-                return { name: 'Fetch GET', time: performance.now() - start, status: response.status, success: true };
-            } catch (e) {
-                return { name: 'Fetch GET', time: performance.now() - start, error: e.name, success: false };
-            }
-        }
-
-        // FAST TCP-style GET (no-cors + keepalive:false)
-        async function testTCP(target) {
-            const start = performance.now();
-            try {
-                await fetch(target, {
-                    method: 'GET',
-                    signal: AbortSignal.timeout(TIMEOUT),
-                    mode: 'no-cors',
-                    keepalive: false,      // ✅ Key for fast failures
-                    redirect: 'manual'     // Skip redirect delays
-                });
-                return { name: 'TCP GET', time: performance.now() - start, success: true };
-            } catch {
-                return { name: 'TCP GET', time: performance.now() - start, success: false };
-            }
-        }
-
-        // XHR GET with shorter timeout
+        // XHR GET only
         async function testXHR(target) {
             return new Promise((resolve) => {
                 const start = performance.now();
                 const xhr = new XMLHttpRequest();
-                xhr.timeout = 300;  // Shorter for XHR
+                xhr.timeout = TIMEOUT;
                 xhr.open('GET', target, true);
                 xhr.setRequestHeader('Cache-Control', 'no-cache');
                 xhr.onreadystatechange = () => {
@@ -180,7 +143,7 @@
             const cidr = document.getElementById('cidr').value.trim();
             const ports = document.getElementById('ports').value.trim();
             const resultsDiv = document.getElementById('results');
-            resultsDiv.innerHTML = '<h3>Scanning CIDR...</h3>';
+            resultsDiv.innerHTML = '<h3>Scanning CIDR (XHR GET only, <10ms=DOWN)...</h3>';
             
             showAll = false;
             const toggleBtn = document.getElementById('toggleAll');
@@ -204,15 +167,18 @@
                         data.tests.forEach(testResult => {
                             if (testResult.status === 'fulfilled') {
                                 const t = testResult.value;
-                                allTests.push({...t, port: data.port, host: data.host});
-                                if (t.time < FAST_THRESHOLD) hasFast = true;
+                                // Filter out <10ms (considered DOWN)
+                                if (t.time >= DOWN_THRESHOLD) {
+                                    allTests.push({...t, port: data.port, host: data.host});
+                                    if (t.time < FAST_THRESHOLD) hasFast = true;
+                                }
                             }
                         });
                     }
                 });
 
                 let html = `<div class="ip-section ${!hasFast ? 'empty' : ''}" data-ip="${ip}">
-                    <h3>${ip} ${!hasFast ? '(No fast tests <200ms)' : ''}</h3>`;
+                    <h3>${ip} ${!hasFast ? '(No fast tests 10-200ms)' : ''}</h3>`;
                 
                 if (hasFast) {
                     const fast = allTests.filter(t => t.time < FAST_THRESHOLD);
@@ -229,7 +195,7 @@
                         <span class="likely-up">LIKELY UP</span> (${fast.length} fast tests)
                     </div>`;
                 } else {
-                    html += '<p>All test timings:</p>';
+                    html += '<p>All test timings (≥10ms):</p>';
                     allTests.forEach(t => {
                         html += `<div class="port-section">
                             <table><tr>
@@ -239,6 +205,9 @@
                             </tr></table>
                         </div>`;
                     });
+                    if (allTests.length === 0) {
+                        html += '<p>All tests <10ms (DOWN)</p>';
+                    }
                 }
                 
                 html += '</div>';
