@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fast CIDR XHR GET Scanner</title>
+    <title>Fast CIDR HTTPS Port Scanner (10ms+ only)</title>
     <style>
         body { font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
         input { width: 250px; padding: 8px; margin: 10px 5px; }
@@ -13,6 +13,7 @@
         .toggle-btn.active { background: #28a745; }
         .ip-section { margin: 30px 0; border: 2px solid #007bff; padding: 20px; }
         .ip-section.empty { border-color: #dc3545; background: #f8d7da; }
+        .close-warning { background: #fff3cd; border-left: 4px solid #ffc107; }
         .port-section { margin: 15px 0; border: 1px solid #ddd; padding: 10px; }
         table { width: 100%; border-collapse: collapse; margin: 10px 0; }
         th, td { padding: 8px; text-align: left; border: 1px solid #ddd; }
@@ -24,8 +25,8 @@
     </style>
 </head>
 <body>
-    <h1>Fast CIDR XHR GET Scanner (<10ms=DOWN)</h1>
-    <p>Enter CIDR and ports. XHR GET only. <10ms filtered as DOWN.</p>
+    <h1>Fast CIDR HTTPS Multi-Port Timing Scanner (<10ms=DOWN)</h1>
+    <p>Enter CIDR and ports. <10ms=DOWN, 10-200ms=SUCCESS. Toggle "Show All Results".</p>
     
     <input type="text" id="cidr" placeholder="192.168.1.0/24" value="192.168.1.0/24">
     <input type="text" id="ports" placeholder="80,443,8443,8080" value="80,443,8443,8080">
@@ -37,7 +38,7 @@
     <script>
         const TIMEOUT = 500;
         const FAST_THRESHOLD = 200;
-        const DOWN_THRESHOLD = 10;  // <10ms = DOWN (filtered)
+        const MIN_THRESHOLD = 10;  // <10ms = DOWN (local/loopback)
         let allScanData = [];
         let showAll = false;
 
@@ -77,16 +78,51 @@
 
         async function testPort(host, port) {
             const target = `https://${host}:${port}/`;
-            const testResult = await testXHR(target);
-            return { port, host, tests: [testResult] };
+            const tests = await Promise.allSettled([
+                testFetch(target),
+                testTCP(target),
+                testXHR(target)
+            ]);
+            return { port, host, tests };
         }
 
-        // XHR GET only
+        async function testFetch(target) {
+            const start = performance.now();
+            try {
+                const response = await fetch(target, {
+                    method: 'GET',
+                    signal: AbortSignal.timeout(TIMEOUT),
+                    cache: 'no-cache',
+                    keepalive: false,
+                    headers: { 'Accept': '*/*' }
+                });
+                return { name: 'Fetch GET', time: performance.now() - start, status: response.status, success: true };
+            } catch (e) {
+                return { name: 'Fetch GET', time: performance.now() - start, error: e.name, success: false };
+            }
+        }
+
+        async function testTCP(target) {
+            const start = performance.now();
+            try {
+                await fetch(target, {
+                    method: 'GET',
+                    signal: AbortSignal.timeout(TIMEOUT),
+                    mode: 'no-cors',
+                    keepalive: false,
+                    redirect: 'manual'
+                });
+                return { name: 'TCP GET', time: performance.now() - start, success: true };
+            } catch {
+                return { name: 'TCP GET', time: performance.now() - start, success: false };
+            }
+        }
+
         async function testXHR(target) {
             return new Promise((resolve) => {
                 const start = performance.now();
                 const xhr = new XMLHttpRequest();
-                xhr.timeout = TIMEOUT;
+                xhr.timeout = 300;
                 xhr.open('GET', target, true);
                 xhr.setRequestHeader('Cache-Control', 'no-cache');
                 xhr.onreadystatechange = () => {
@@ -118,7 +154,7 @@
 
         function renderAll() {
             const resultsDiv = document.getElementById('results');
-            let html = `<h3>${showAll ? 'ALL Results' : 'Fast Results Only'} 
+            let html = `<h3>${showAll ? 'ALL Results' : 'Fast Results Only (10-200ms)'} 
                 <span style="color:#666">(${allScanData.filter(d => d.hasFast).length} fast, 
                 ${allScanData.length} total IPs)</span></h3>`;
             
@@ -143,7 +179,7 @@
             const cidr = document.getElementById('cidr').value.trim();
             const ports = document.getElementById('ports').value.trim();
             const resultsDiv = document.getElementById('results');
-            resultsDiv.innerHTML = '<h3>Scanning CIDR (XHR GET only, <10ms=DOWN)...</h3>';
+            resultsDiv.innerHTML = '<h3>Scanning CIDR (<10ms=DOWN)...</h3>';
             
             showAll = false;
             const toggleBtn = document.getElementById('toggleAll');
@@ -167,10 +203,10 @@
                         data.tests.forEach(testResult => {
                             if (testResult.status === 'fulfilled') {
                                 const t = testResult.value;
-                                // Filter out <10ms (considered DOWN)
-                                if (t.time >= DOWN_THRESHOLD) {
-                                    allTests.push({...t, port: data.port, host: data.host});
-                                    if (t.time < FAST_THRESHOLD) hasFast = true;
+                                allTests.push({...t, port: data.port, host: data.host});
+                                // 10ms < time < 200ms = FAST SUCCESS
+                                if (t.time > MIN_THRESHOLD && t.time < FAST_THRESHOLD) {
+                                    hasFast = true;
                                 }
                             }
                         });
@@ -181,33 +217,32 @@
                     <h3>${ip} ${!hasFast ? '(No fast tests 10-200ms)' : ''}</h3>`;
                 
                 if (hasFast) {
-                    const fast = allTests.filter(t => t.time < FAST_THRESHOLD);
+                    const fast = allTests.filter(t => t.time > MIN_THRESHOLD && t.time < FAST_THRESHOLD);
                     fast.forEach(t => {
+                        const isClose = t.time < MIN_THRESHOLD;
                         html += `<div class="port-section">
                             <table><tr class="fast-row">
                                 <td><a href="${getLinkUrl(t.host || ip, t.port)}" target="_blank">${t.name} (Port ${t.port})</a></td>
                                 <td>${t.time.toFixed(0)}ms</td>
-                                <td class="success">SUCCESS</td>
+                                <td class="${isClose ? 'close-warning' : 'success'}">${isClose ? 'TOO CLOSE (&lt;10ms)' : 'SUCCESS'}</td>
                             </tr></table>
                         </div>`;
                     });
                     html += `<div class="result success">
-                        <span class="likely-up">LIKELY UP</span> (${fast.length} fast tests)
+                        <span class="likely-up">LIKELY UP</span> (${fast.length} fast tests 10-200ms)
                     </div>`;
                 } else {
-                    html += '<p>All test timings (≥10ms):</p>';
+                    html += '<p>All test timings:</p>';
                     allTests.forEach(t => {
+                        const isClose = t.time < MIN_THRESHOLD;
                         html += `<div class="port-section">
                             <table><tr>
                                 <td>${t.name} (Port ${t.port})</td>
                                 <td>${t.time.toFixed(0)}ms</td>
-                                <td>${t.success ? 'SUCCESS' : 'FAILED'}</td>
+                                <td>${isClose ? 'TOO CLOSE' : (t.success ? 'SUCCESS' : 'FAILED')}</td>
                             </tr></table>
                         </div>`;
                     });
-                    if (allTests.length === 0) {
-                        html += '<p>All tests <10ms (DOWN)</p>';
-                    }
                 }
                 
                 html += '</div>';
