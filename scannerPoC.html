@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fast CIDR HTTPS Port Scanner (10ms+ only)</title>
+    <title>Fast CIDR HTTPS Port Scanner (Adjustable Thresholds)</title>
     <style>
         body { font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
         input { width: 250px; padding: 8px; margin: 10px 5px; }
@@ -11,9 +11,10 @@
         button:hover { background: #0056b3; }
         .toggle-btn { background: #6c757d; padding: 8px 16px; font-size: 14px; }
         .toggle-btn.active { background: #28a745; }
+        .controls { background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0; }
+        .threshold-input { width: 80px; margin: 0 10px; }
         .ip-section { margin: 30px 0; border: 2px solid #007bff; padding: 20px; }
         .ip-section.empty { border-color: #dc3545; background: #f8d7da; }
-        .close-warning { background: #fff3cd; border-left: 4px solid #ffc107; }
         .port-section { margin: 15px 0; border: 1px solid #ddd; padding: 10px; }
         table { width: 100%; border-collapse: collapse; margin: 10px 0; }
         th, td { padding: 8px; text-align: left; border: 1px solid #ddd; }
@@ -25,20 +26,28 @@
     </style>
 </head>
 <body>
-    <h1>Fast CIDR HTTPS Multi-Port Timing Scanner (<10ms=DOWN)</h1>
-    <p>Enter CIDR and ports. <10ms=DOWN, 10-200ms=SUCCESS. Toggle "Show All Results".</p>
+    <h1>Fast CIDR HTTPS Multi-Port Timing Scanner (Adjustable Thresholds)</h1>
+    <p>Enter CIDR and ports. Adjust Min/Max ms for "UP" status. Toggle "Show All Results".</p>
     
     <input type="text" id="cidr" placeholder="192.168.1.0/24" value="192.168.1.0/24">
     <input type="text" id="ports" placeholder="80,443,8443,8080" value="80,443,8443,8080">
     <button onclick="runCidrScanner()">Scan CIDR</button>
-    <button id="toggleAll" class="toggle-btn" onclick="toggleAllResults()">Show All Results</button>
+    
+    <div class="controls">
+        <label>UP Range: </label>
+        <input type="number" id="minThreshold" class="threshold-input" value="30" min="1" max="1000">ms 
+        <span>to</span>
+        <input type="number" id="maxThreshold" class="threshold-input" value="150" min="1" max="1000">ms
+        <button onclick="updateThresholds()">Update Thresholds</button>
+        <button id="toggleAll" class="toggle-btn" onclick="toggleAllResults()">Show All Results</button>
+    </div>
     
     <div id="results"></div>
 
     <script>
         const TIMEOUT = 500;
-        const FAST_THRESHOLD = 200;
-        const MIN_THRESHOLD = 10;  // <10ms = DOWN (local/loopback)
+        let MIN_THRESHOLD = 30;  // Default adjustable
+        let MAX_THRESHOLD = 150; // Default adjustable
         let allScanData = [];
         let showAll = false;
 
@@ -152,9 +161,13 @@
             return port === 80 ? `http://${host}:${port}/` : `https://${host}:${port}/`;
         }
 
+        function isFastTest(t) {
+            return t.time >= MIN_THRESHOLD && t.time <= MAX_THRESHOLD;
+        }
+
         function renderAll() {
             const resultsDiv = document.getElementById('results');
-            let html = `<h3>${showAll ? 'ALL Results' : 'Fast Results Only (10-200ms)'} 
+            let html = `<h3>${showAll ? 'ALL Results' : `Fast Results Only (${MIN_THRESHOLD}-${MAX_THRESHOLD}ms)`} 
                 <span style="color:#666">(${allScanData.filter(d => d.hasFast).length} fast, 
                 ${allScanData.length} total IPs)</span></h3>`;
             
@@ -175,11 +188,60 @@
             renderAll();
         }
 
+        function updateThresholds() {
+            MIN_THRESHOLD = parseInt(document.getElementById('minThreshold').value) || 30;
+            MAX_THRESHOLD = parseInt(document.getElementById('maxThreshold').value) || 150;
+            // Re-evaluate all data with new thresholds
+            allScanData.forEach(data => {
+                data.hasFast = data.allTests.some(isFastTest);
+                data.html = generateIpHtml(data.ip, data.allTests);
+            });
+            renderAll();
+        }
+
+        function generateIpHtml(ip, allTests) {
+            const fastTests = allTests.filter(isFastTest);
+            const hasFast = fastTests.length > 0;
+            
+            let html = `<div class="ip-section ${!hasFast ? 'empty' : ''}" data-ip="${ip}">
+                <h3>${ip} ${!hasFast ? `(No tests ${MIN_THRESHOLD}-${MAX_THRESHOLD}ms)` : ''}</h3>`;
+            
+            if (hasFast) {
+                fastTests.forEach(t => {
+                    html += `<div class="port-section">
+                        <table><tr class="fast-row">
+                            <td><a href="${getLinkUrl(t.host || ip, t.port)}" target="_blank">${t.name} (Port ${t.port})</a></td>
+                            <td>${t.time.toFixed(0)}ms</td>
+                            <td class="success">SUCCESS</td>
+                        </tr></table>
+                    </div>`;
+                });
+                html += `<div class="result success">
+                    <span class="likely-up">LIKELY UP</span> (${fastTests.length} fast tests ${MIN_THRESHOLD}-${MAX_THRESHOLD}ms)
+                </div>`;
+            } else {
+                html += `<p>All test timings:</p>`;
+                allTests.forEach(t => {
+                    const isFast = isFastTest(t);
+                    html += `<div class="port-section">
+                        <table><tr>
+                            <td>${t.name} (Port ${t.port})</td>
+                            <td>${t.time.toFixed(0)}ms</td>
+                            <td>${isFast ? 'SUCCESS' : (t.success ? 'SLOW SUCCESS' : 'FAILED')}</td>
+                        </tr></table>
+                    </div>`;
+                });
+            }
+            
+            html += '</div>';
+            return html;
+        }
+
         async function runCidrScanner() {
             const cidr = document.getElementById('cidr').value.trim();
             const ports = document.getElementById('ports').value.trim();
             const resultsDiv = document.getElementById('results');
-            resultsDiv.innerHTML = '<h3>Scanning CIDR (<10ms=DOWN)...</h3>';
+            resultsDiv.innerHTML = '<h3>Scanning CIDR...</h3>';
             
             showAll = false;
             const toggleBtn = document.getElementById('toggleAll');
@@ -195,7 +257,6 @@
                 const results = await portScanner(ip, ports);
                 
                 const allTests = [];
-                let hasFast = false;
                 
                 results.forEach(portData => {
                     if (portData.status === 'fulfilled') {
@@ -204,50 +265,15 @@
                             if (testResult.status === 'fulfilled') {
                                 const t = testResult.value;
                                 allTests.push({...t, port: data.port, host: data.host});
-                                // 10ms < time < 200ms = FAST SUCCESS
-                                if (t.time > MIN_THRESHOLD && t.time < FAST_THRESHOLD) {
-                                    hasFast = true;
-                                }
                             }
                         });
                     }
                 });
 
-                let html = `<div class="ip-section ${!hasFast ? 'empty' : ''}" data-ip="${ip}">
-                    <h3>${ip} ${!hasFast ? '(No fast tests 10-200ms)' : ''}</h3>`;
+                const html = generateIpHtml(ip, allTests);
+                const hasFast = allTests.some(isFastTest);
                 
-                if (hasFast) {
-                    const fast = allTests.filter(t => t.time > MIN_THRESHOLD && t.time < FAST_THRESHOLD);
-                    fast.forEach(t => {
-                        const isClose = t.time < MIN_THRESHOLD;
-                        html += `<div class="port-section">
-                            <table><tr class="fast-row">
-                                <td><a href="${getLinkUrl(t.host || ip, t.port)}" target="_blank">${t.name} (Port ${t.port})</a></td>
-                                <td>${t.time.toFixed(0)}ms</td>
-                                <td class="${isClose ? 'close-warning' : 'success'}">${isClose ? 'TOO CLOSE (&lt;10ms)' : 'SUCCESS'}</td>
-                            </tr></table>
-                        </div>`;
-                    });
-                    html += `<div class="result success">
-                        <span class="likely-up">LIKELY UP</span> (${fast.length} fast tests 10-200ms)
-                    </div>`;
-                } else {
-                    html += '<p>All test timings:</p>';
-                    allTests.forEach(t => {
-                        const isClose = t.time < MIN_THRESHOLD;
-                        html += `<div class="port-section">
-                            <table><tr>
-                                <td>${t.name} (Port ${t.port})</td>
-                                <td>${t.time.toFixed(0)}ms</td>
-                                <td>${isClose ? 'TOO CLOSE' : (t.success ? 'SUCCESS' : 'FAILED')}</td>
-                            </tr></table>
-                        </div>`;
-                    });
-                }
-                
-                html += '</div>';
-                
-                allScanData.push({ ip, html, hasFast });
+                allScanData.push({ ip, html, allTests, hasFast });
                 if (hasFast) fastCount++;
                 
                 renderAll();
