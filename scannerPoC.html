@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fast CIDR HTTPS Port Scanner (No WebSocket)</title>
+    <title>Fast CIDR HTTPS Port Scanner (GET only)</title>
     <style>
         body { font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
         input { width: 250px; padding: 8px; margin: 10px 5px; }
@@ -24,8 +24,8 @@
     </style>
 </head>
 <body>
-    <h1>Fast CIDR HTTPS Multi-Port Timing Scanner (No WebSocket)</h1>
-    <p>Enter CIDR and ports. Toggle "Show All Results" to see IPs with no fast services.</p>
+    <h1>Fast CIDR HTTPS Multi-Port Timing Scanner (GET only)</h1>
+    <p>Enter CIDR and ports. Uses GET for all probes. Toggle "Show All Results" to see IPs with no fast services.</p>
     
     <input type="text" id="cidr" placeholder="192.168.1.0/24" value="192.168.1.0/24">
     <input type="text" id="ports" placeholder="80,443,8443,8080" value="80,443,8443,8080">
@@ -75,7 +75,7 @@
         }
 
         async function testPort(host, port) {
-            const target = `https://${host}:${port}`;
+            const target = `https://${host}:${port}/`;
             const tests = await Promise.allSettled([
                 testFetch(target),
                 testTCP(target),
@@ -84,45 +84,48 @@
             return { port, host, tests };
         }
 
+        // GET instead of HEAD
         async function testFetch(target) {
             const start = performance.now();
             try {
                 const response = await fetch(target, {
-                    method: 'HEAD',
+                    method: 'GET',
                     signal: AbortSignal.timeout(TIMEOUT),
                     cache: 'no-cache'
                 });
-                return { name: 'Fetch HEAD', time: performance.now() - start, status: response.status, success: true };
+                return { name: 'Fetch GET', time: performance.now() - start, status: response.status, success: true };
             } catch (e) {
-                return { name: 'Fetch HEAD', time: performance.now() - start, error: e.name, success: false };
+                return { name: 'Fetch GET', time: performance.now() - start, error: e.name, success: false };
             }
         }
 
+        // Also GET here (TCP-style timing)
         async function testTCP(target) {
             const start = performance.now();
             try {
                 await fetch(target, {
-                    method: 'HEAD',
+                    method: 'GET',
                     signal: AbortSignal.timeout(TIMEOUT),
                     mode: 'no-cors'
                 });
-                return { name: 'TCP Connect', time: performance.now() - start, success: true };
+                return { name: 'TCP Connect (GET)', time: performance.now() - start, success: true };
             } catch {
-                return { name: 'TCP Connect', time: performance.now() - start, success: false };
+                return { name: 'TCP Connect (GET)', time: performance.now() - start, success: false };
             }
         }
 
+        // XHR using GET too
         async function testXHR(target) {
             return new Promise((resolve) => {
                 const start = performance.now();
                 const xhr = new XMLHttpRequest();
                 xhr.timeout = TIMEOUT;
-                xhr.open('HEAD', target, true);
+                xhr.open('GET', target, true);
                 xhr.onreadystatechange = () => {
                     if (xhr.readyState === 4) {
                         const end = performance.now();
                         resolve({ 
-                            name: 'XHR HEAD', 
+                            name: 'XHR GET', 
                             time: end - start, 
                             status: xhr.status, 
                             success: xhr.status >= 200 && xhr.status < 400 
@@ -131,11 +134,11 @@
                 };
                 xhr.ontimeout = () => {
                     const end = performance.now();
-                    resolve({ name: 'XHR HEAD', time: end - start, error: 'Timeout', success: false });
+                    resolve({ name: 'XHR GET', time: end - start, error: 'Timeout', success: false });
                 };
                 xhr.onerror = () => {
                     const end = performance.now();
-                    resolve({ name: 'XHR HEAD', time: end - start, error: 'Network Error', success: false });
+                    resolve({ name: 'XHR GET', time: end - start, error: 'Network Error', success: false });
                 };
                 xhr.send();
             });
