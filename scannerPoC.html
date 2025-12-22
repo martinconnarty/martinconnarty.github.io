@@ -28,14 +28,14 @@
 <body>
     <h1>Fast CIDR HTTPS Multi-Port Timing Scanner (Adjustable Thresholds)</h1>
     <p>Enter CIDR and ports. Adjust Min/Max ms for "UP" status. Toggle "Show All Results".</p>
-    
+    <p>Scanning is not 100% reliable, but play with values to see what may be up</p>
     <input type="text" id="cidr" placeholder="192.168.1.0/24" value="192.168.1.0/24">
     <input type="text" id="ports" placeholder="80,443,8443,8080" value="80,443,8443,8080">
     <button onclick="runCidrScanner()">Scan CIDR</button>
     
     <div class="controls">
         <label>UP Range: </label>
-        <input type="number" id="minThreshold" class="threshold-input" value="30" min="1" max="1000">ms 
+        <input type="number" id="minThreshold" class="threshold-input" value="20" min="1" max="1000">ms 
         <span>to</span>
         <input type="number" id="maxThreshold" class="threshold-input" value="150" min="1" max="1000">ms
         <button onclick="updateThresholds()">Update Thresholds</button>
